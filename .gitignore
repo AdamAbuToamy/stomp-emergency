@@ -1,0 +1,22 @@
+# Compiled files
+server/target/
+client/bin/
+*.o
+*.class
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Editors and operating system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.bak
+*.before-*
+
+# Generated demo output
+/police-summary.txt

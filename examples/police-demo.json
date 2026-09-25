@@ -1,0 +1,15 @@
+{
+  "channel_name": "police",
+  "events": [
+    {
+      "event_name": "Training report",
+      "city": "Test City",
+      "date_time": 1700000000,
+      "description": "Simulated event for testing only.",
+      "general_information": {
+        "active": true,
+        "forces_arrival_at_scene": false
+      }
+    }
+  ]
+}
