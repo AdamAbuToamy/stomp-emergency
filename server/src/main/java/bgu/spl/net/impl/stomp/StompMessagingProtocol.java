@@ -69,6 +69,17 @@ public class StompMessagingProtocol implements MessagingProtocol<String> {
         if (destination == null || id == null) {
             return createErrorFrame("Missing headers", null, connectionId);
         }
+        HashMap<String, String> userSubscriptions =
+                subscriptions.get(connectionId);
+
+        if (userSubscriptions != null && userSubscriptions.containsKey(id)) {
+            return createErrorFrame(
+                    "Subscription id already in use",
+                    frame.getHeader("receipt"),
+                    connectionId
+            );
+        }
+
         StompTopic topic;
         if(connections.subscribe(connectionId,destination)){
             topic = new StompTopic(destination);
