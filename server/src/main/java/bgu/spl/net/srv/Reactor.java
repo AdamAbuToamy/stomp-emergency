@@ -55,12 +55,16 @@ public class Reactor<T> implements Server<T> {
 
                 for (SelectionKey key : selector.selectedKeys()) {
 
-                    if (!key.isValid()) {
-                        continue;
-                    } else if (key.isAcceptable()) {
-                        handleAccept(serverSock, selector);
-                    } else {
-                        handleReadWrite(key);
+                    try {
+                        if (!key.isValid()) {
+                            continue;
+                        } else if (key.isAcceptable()) {
+                            handleAccept(serverSock, selector);
+                        } else {
+                            handleReadWrite(key);
+                        }
+                    } catch (java.nio.channels.CancelledKeyException ignored) {
+                        // A worker may close this connection during dispatch.
                     }
                 }
 
@@ -80,20 +84,30 @@ public class Reactor<T> implements Server<T> {
     }
 
     /*package*/ void updateInterestedOps(SocketChannel chan, int ops) {
-        final SelectionKey key = chan.keyFor(selector);
+        Runnable update = () -> {
+            SelectionKey key = chan.keyFor(selector);
+            if (key == null || !key.isValid()) return;
+            try {
+                Object attachment = key.attachment();
+                int currentOps = attachment instanceof NonBlockingConnectionHandler
+                        ? ((NonBlockingConnectionHandler<?>) attachment).desiredInterestOps()
+                        : ops;
+                key.interestOps(currentOps);
+            } catch (java.nio.channels.CancelledKeyException ignored) {
+                // Connection closed after the update was scheduled.
+            }
+        };
         if (Thread.currentThread() == selectorThread) {
-            key.interestOps(ops);
+            update.run();
         } else {
-            selectorTasks.add(() -> {
-                key.interestOps(ops);
-            });
+            selectorTasks.add(update);
             selector.wakeup();
         }
     }
 
-
     private void handleAccept(ServerSocketChannel serverChan, Selector selector) throws IOException {
         SocketChannel clientChan = serverChan.accept();
+        if (clientChan == null) return;
         clientChan.configureBlocking(false);
         final NonBlockingConnectionHandler<T> handler = new NonBlockingConnectionHandler<>(
                 readerFactory.get(),

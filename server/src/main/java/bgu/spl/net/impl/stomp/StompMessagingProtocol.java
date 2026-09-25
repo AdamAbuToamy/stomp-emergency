@@ -146,19 +146,30 @@ public class StompMessagingProtocol implements MessagingProtocol<String> {
     private String handleDisconnect(StompFrame frame, int connectionId) {
         String receipt = frame.getHeader("receipt");
         if (receipt == null) {
-            return createErrorFrame("Missing receipt header", null,connectionId);
+            return createErrorFrame("Missing receipt header", null, connectionId);
         }
 
-        // Clean up user's subscriptions
-        for (String topicName : subscriptions.get(connectionId).values()) {
-            if (topicName != null) {
-                connections.unsubscribe(connectionId,topicName);
+        onDisconnect(connectionId);
+        return "RECEIPT\nreceipt-id:" + receipt + "\n\n\u0000";
+    }
+
+    @Override
+    public void onDisconnect(int connectionId) {
+        HashMap<String, String> userSubscriptions =
+                subscriptions.remove(connectionId);
+
+        if (userSubscriptions != null) {
+            for (String topicName : userSubscriptions.values()) {
+                StompTopic topic = topics.get(topicName);
+                if (topic != null) {
+                    topic.removeSubscriber(connectionId);
+                }
+                connections.unsubscribe(connectionId, topicName);
             }
         }
-        subscriptions.remove(connectionId);
+
         connectedUsers.remove(connectionId);
         shouldTerminate = true;
-        return "RECEIPT\nreceipt-id:" + receipt + "\n\n\u0000";
     }
 
     private String createErrorFrame(String message, String receiptId, int connectionId) {
@@ -174,6 +185,11 @@ public class StompMessagingProtocol implements MessagingProtocol<String> {
     public String process(String message, int idOfSender) {
         try {
             StompFrame frame = StompFrame.parse(message);
+
+            if (!"CONNECT".equals(frame.getCommand())
+                    && !connectedUsers.containsKey(idOfSender)) {
+                return createErrorFrame("Login required", null, idOfSender);
+            }
 
             switch (frame.getCommand()) {
                 case "CONNECT":

@@ -54,6 +54,13 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
 
         } catch (IOException ex) {
             ex.printStackTrace();
+        } finally {
+            connected = false;
+            try {
+                protocol.onDisconnect(id);
+            } finally {
+                ConnectionsImpl.getInstance().disconnect(id);
+            }
         }
 
     }

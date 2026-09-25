@@ -18,5 +18,10 @@ public interface MessagingProtocol<T> {
      * @return true if the connection should be terminated
      */
     boolean shouldTerminate();
+
+    /** Called when the underlying connection ends. Safe to call more than once. */
+    default void onDisconnect(int connectionId) {
+        // Protocols without connection-specific state need no cleanup.
+    }
  
 }
