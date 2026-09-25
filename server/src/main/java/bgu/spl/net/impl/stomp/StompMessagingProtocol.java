@@ -17,6 +17,14 @@ public class StompMessagingProtocol implements MessagingProtocol<String> {
     private HashMap<Integer,HashMap<String, String>> subscriptions = new HashMap<>(); // subscriptionId -> topic
 
     private String handleConnect(StompFrame frame, int connectionId) {
+        if (connectedUsers.containsKey(connectionId)) {
+            return createErrorFrame(
+                    "Connection already authenticated",
+                    frame.getHeader("receipt"),
+                    connectionId
+            );
+        }
+
         // Check required headers
         String acceptVersion = frame.getHeader("accept-version");
         String host = frame.getHeader("host");
