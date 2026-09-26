@@ -8,6 +8,9 @@ import bgu.spl.net.srv.Connections;
 import bgu.spl.net.srv.ConnectionsImpl;
 
 public class StompMessagingProtocol implements MessagingProtocol<String> {
+    // One shared lock: each connection has its own protocol instance.
+    private static final Object AUTH_LOCK = new Object();
+
     private static final ConcurrentHashMap<String, StompTopic> topics = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, String> userPasswords = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<Integer, String> connectedUsers = new ConcurrentHashMap<>();
@@ -17,6 +20,13 @@ public class StompMessagingProtocol implements MessagingProtocol<String> {
     private HashMap<Integer,HashMap<String, String>> subscriptions = new HashMap<>(); // subscriptionId -> topic
 
     private String handleConnect(StompFrame frame, int connectionId) {
+        synchronized (AUTH_LOCK) {
+            return authenticateUnderLock(frame, connectionId);
+        }
+    }
+
+    // Called only while holding AUTH_LOCK; no socket I/O occurs here.
+    private String authenticateUnderLock(StompFrame frame, int connectionId) {
         if (connectedUsers.containsKey(connectionId)) {
             return createErrorFrame(
                     "Connection already authenticated",
@@ -187,12 +197,16 @@ public class StompMessagingProtocol implements MessagingProtocol<String> {
             }
         }
 
-        connectedUsers.remove(connectionId);
+        synchronized (AUTH_LOCK) {
+            connectedUsers.remove(connectionId);
+        }
         shouldTerminate = true;
     }
 
     private String createErrorFrame(String message, String receiptId, int connectionId) {
-        connectedUsers.remove(connectionId);
+        synchronized (AUTH_LOCK) {
+            connectedUsers.remove(connectionId);
+        }
         return StompFrame.createErrorFrame(message, receiptId).toString();
     }
 

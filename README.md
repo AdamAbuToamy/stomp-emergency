@@ -1,5 +1,16 @@
 # STOMP Emergency Reporting System
 
+## Development status
+
+This university project is being extended with automated tests and
+reliability improvements. The repository includes Python integration
+tests, C++ event-parser tests, and tests that run the real C++ client.
+
+Current work includes concurrency review, further client robustness
+improvements, and code organization. Some tests may expose known issues
+while fixes are in progress. This is an educational portfolio project,
+not a production emergency service.
+
 A university networking project with a Java messaging server and a
 multithreaded C++ client. Users subscribe to channels, publish simulated
 emergency reports, and generate local summaries.

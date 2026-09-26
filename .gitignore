@@ -20,3 +20,13 @@ Thumbs.db
 
 # Generated demo output
 /police-summary.txt
+
+**/bin/
+**/target/
+**/__pycache__/
+/apply_*.py
+*.zip
+core
+core.*
+.env
+.env.*
