@@ -1,70 +1,55 @@
 # STOMP Emergency Reporting System
 
-## Development status
+A Java messaging server and a multithreaded C++ client for publishing simulated
+emergency reports over TCP. Clients subscribe to channels, exchange reports,
+and generate local summaries.
 
-This university project is being extended with automated tests and
-reliability improvements. The repository includes Python integration
-tests, C++ event-parser tests, and tests that run the real C++ client.
+Originally developed by Adam Abu Toamy and Ammar Mawassi for the Systems
+Programming course at Ben-Gurion University. Adam implemented most of the
+original project and is extending it with automated tests, reliability fixes,
+and Linux build improvements.
 
-Current work includes concurrency review, further client robustness
-improvements, and code organization. Some tests may expose known issues
-while fixes are in progress. This is an educational portfolio project,
-not a production emergency service.
+## Architecture
 
-A university networking project with a Java messaging server and a
-multithreaded C++ client. Users subscribe to channels, publish simulated
-emergency reports, and generate local summaries.
+- **Java server:** STOMP message parsing, login, subscriptions and message routing.
+- **TPC mode:** a dedicated thread handles each connection.
+- **Reactor mode:** a selector handles socket readiness with worker threads for processing.
+- **C++ client:** keyboard commands, socket reception, JSON reports and local summaries.
+- **Python tests:** real TCP clients and subprocess tests of the actual C++ executable.
 
-Originally developed by Adam Abu Toamy and Ammar Mawassi for the
-Systems Programming course at Ben-Gurion University. Adam implemented
-most of the original project. This revision adds Python integration
-tests, targeted bug fixes, and Linux build improvements.
+The server routes messages; the C++ client interprets event data and generates summaries.
 
-This is an educational prototype, not an operational emergency system.
+## Build
 
-## Technologies
-
-Java, C++, Python unittest, TCP sockets, Boost.Asio, Maven, Make.
-
-The server supports:
-- Thread-Per-Client (TPC)
-- Reactor
-
-## Setup
-
-Tested locally on Ubuntu through WSL 2, using JDK 17.
+Developed and tested locally on Ubuntu through WSL 2 with JDK 17.
+The current shutdown implementation targets Linux/WSL.
 
 ```bash
 sudo apt update
 sudo apt install -y openjdk-17-jdk maven build-essential libboost-dev python3
-```
-
-Build both components from the repository root:
-
-```bash
-(cd server && mvn compile)
+mvn -f server/pom.xml compile
 make -C client
 ```
 
-## Run
+## Run the example
 
-In terminal 1, from the repository root:
+From the repository root, start the server in one terminal:
 
 ```bash
 java -cp server/target/classes bgu.spl.net.impl.stomp.StompServer 7777 tpc
 ```
 
-Replace `tpc` with `reactor` to use the other server mode.
+Use `reactor` instead of `tpc` to run the other mode. Run only one server on
+port 7777 at a time.
 
-In terminal 2:
+In another terminal:
 
 ```bash
 cd client
 ./bin/StompEMIClient
 ```
 
-Enter these commands one at a time. Wait for the login and subscription
-confirmations before sending the report:
+Enter these commands one at a time, waiting for the login and channel-join confirmations:
 
 ```text
 login 127.0.0.1:7777 demo_user demo123
@@ -72,66 +57,115 @@ join police
 report ../examples/police-demo.json
 ```
 
-Allow the report to arrive, then generate the summary:
+After the event arrives:
 
 ```text
 summary police demo_user /tmp/stomp-demo-summary.txt
 ```
 
-Read it from another terminal:
+Read the output in another terminal:
 
 ```bash
 cat /tmp/stomp-demo-summary.txt
 ```
 
-For one submission of the example report, the expected counts are:
-- Total: 1
-- Active: 1
-- Forces arrival at scene: 0
+A single submission of the example should produce Total: 1, active: 1,
+and forces arrival at scene: 0. Summary times use the local timezone.
+Use disposable demo credentials.
 
-Use disposable demo credentials. The current client connects to
-127.0.0.1:7777; configurable network endpoints need further work.
-Summary timestamps use the local timezone.
+## Tests
 
-## Python integration tests
+### Python integration and client tests
 
-With the Java server running on port 7777, run from the repository root:
+Build both components first and keep the Java server running on port 7777.
+From the repository root:
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-The tests use real TCP connections and Python's standard library:
+The repository contains **31 Python test methods**, covering:
 
-1. Connect, subscribe, and verify the subscription receipt.
-2. Connect two clients and verify the delivered message's content,
-   destination, and recipient-specific subscription ID.
+- Login, incorrect passwords, duplicate login and repeated CONNECT.
+- Subscription authorization, recipient-specific IDs and channel isolation.
+- Unsubscribe, resubscribe, disconnect and reconnect behavior.
+- TCP input split across writes, multiple frames in one write and larger UTF-8 bodies.
+- Real C++ client shutdown, incomplete commands and report file errors.
+- Report-to-summary behavior and routing metadata separated from report content.
+- Concurrent login attempts for the same username.
 
-Both tests passed locally against TPC and Reactor.
-The C++ report-to-summary scenario was also checked manually against Reactor.
+The concurrent-login test repeats its scenario 25 times. A passing run alone
+does not prove the absence of race conditions.
 
-## Fixes in this revision
+Repeat the tests with each server mode. These tests use the local development
+server; they are not intended for a production deployment.
 
-- Removed a duplicate frame terminator from server encoding.
-- Built outgoing messages with each recipient's subscription ID.
-- Replaced unsafe manual destruction of StompFrame's map with default destruction.
-- Matched the client's STOMP host header to the server's expected value.
-- Updated legacy Boost.Asio API names.
-- Removed Windows-specific build paths and unnecessary Boost.System linking.
-- Added automatic build-directory creation and header dependencies.
+### C++ event-parser tests
 
-The delivery test initially failed because the receiver obtained the
-sender's subscription ID. It passed after recipient-specific delivery
-was implemented.
+These three checks do not require a running server:
 
-## Scope and remaining work
+```bash
+event_test_dir=$(mktemp -d)
+g++ -std=c++11 -Wall -Wextra -Iclient/include \
+  tests/cpp/test_event_parser.cpp client/src/event.cpp \
+  -o "$event_test_dir/test_event_parser" && \
+  "$event_test_dir/test_event_parser"
+```
 
-Two passing tests cover specific scenarios, not complete correctness.
-Disconnect/reconnect behavior, malformed input, concurrency, and resource
-cleanup require additional tests and fixes. Other client cleanup code
-has not yet been repaired.
+### Memory diagnostics
 
-AddressSanitizer and UndefinedBehaviorSanitizer were used during
-debugging; a complete sanitizer-verified test suite is not yet available.
+Build an isolated ASan/UBSan client without replacing the regular executable:
 
-No production-readiness or full STOMP 1.2 compliance is claimed.
+```bash
+sanitizer_dir=$(mktemp -d)
+cp -r client/src client/include client/makefile "$sanitizer_dir/"
+make -C "$sanitizer_dir" -B \
+  CFLAGS="-c -Wall -g -O1 -std=c++11 -Iinclude -pthread -fsanitize=address,undefined -fno-omit-frame-pointer" \
+  LDFLAGS="-pthread -fsanitize=address,undefined"
+```
+
+With the server running, test report generation and cleanup:
+
+```bash
+STOMP_CLIENT_BIN="$sanitizer_dir/bin/StompEMIClient" \
+ASAN_OPTIONS="detect_leaks=1:halt_on_error=1" \
+UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \
+python3 -m unittest discover -s tests -p 'test_client_report_summary.py' -v
+```
+
+These tools check executed paths and do not establish thread safety.
+
+## Reliability improvements
+
+- Removed duplicate server frame terminators.
+- Delivered messages using each recipient's subscription ID.
+- Rejected commands requiring authentication before login, duplicate subscription IDs,
+  and repeated CONNECT on an authenticated connection.
+- Added cleanup after normal disconnect and transport closure.
+- Changed Reactor handling to flush final replies before closing and stop failed write loops.
+- Replaced unsafe manual C++ member destruction with default destruction.
+- Added EOF shutdown before and after login.
+- Validated command argument counts and recovered from report file errors.
+- Preserved colons in event values and separated descriptions from general fields.
+- Used parsed message metadata directly for channel routing.
+- Added a shared authentication lock after a test exposed two successful concurrent logins.
+
+## Verification status and remaining work
+
+Before the latest authentication-lock change, the 30-test Python suite passed
+locally. The three C++ parser checks also passed. Selected client shutdown and
+report-to-summary scenarios passed with ASan/UBSan enabled.
+
+The concurrent-login test subsequently exposed a race in Reactor. A fix is
+included in this snapshot; a complete post-fix run in both modes has not yet
+been recorded in this README. No CI run is claimed.
+
+Ongoing work includes shared-state concurrency review, reconnect behavior in
+the C++ client, configurable network endpoints, malformed-input handling,
+resource limits, automated test setup, logging and code organization.
+The client currently connects to 127.0.0.1:7777 despite accepting an endpoint
+in its login command.
+
+This is an educational portfolio project. It is not an operational emergency
+system, and full STOMP 1.2 compliance is not claimed. The bundled `json.hpp`
+is the third-party nlohmann/json library; its license notice is retained.
