@@ -1,5 +1,6 @@
 #include "StompClient.h"
 #include <iostream>
+#include <exception>
 #include <fstream>
 #include <sstream>
 #include <algorithm>
@@ -43,7 +44,11 @@ void StompClient::readFromSocket() {
 void StompClient::readFromKeyboard() {
 	while (!shouldTerminate) {
 		std::string command;
-		std::getline(std::cin, command);
+		if (!std::getline(std::cin, command)) {
+            shouldTerminate = true;
+            protocol.requestShutdown();
+            break;
+        }
 		if (!command.empty()) {
 			processCommand(command);
 		}
@@ -170,7 +175,13 @@ void StompClient::handleExit(const std::vector<std::string>& tokens) {
 void StompClient::handleReport(const std::vector<std::string>& tokens) {
 
 	std::string filename = tokens[1];
-	names_and_events eventsData = parseEventsFile(filename);
+	names_and_events eventsData;
+    try {
+        eventsData = parseEventsFile(filename);
+    } catch (const std::exception& error) {
+        std::cerr << "Report error: " << error.what() << std::endl;
+        return;
+    }
 	
 	for (const Event& event : eventsData.events) {
 		
@@ -280,52 +291,58 @@ std::vector<std::string> StompClient::splitCommand(const std::string& command) {
 }
 
 void StompClient::processCommand(const std::string& command) {
-	std::vector<std::string> tokens = splitCommand(command);
-	if (tokens.empty()) return;
+    const std::vector<std::string> tokens = splitCommand(command);
+    if (tokens.empty()) return;
 
-	std::string cmd = tokens[0];
-	if (cmd == "login") {
-		handleLogin(tokens);
-	}
-	else if (cmd == "join" && connected) {
-		handleJoin(tokens);
-	}
-	else if (cmd == "exit" && connected) {
-		handleExit(tokens);
-	}
-	else if (cmd == "report" && connected) {
-		handleReport(tokens);
-	}
-	else if (cmd == "summary" && connected) {
-		handleSummary(tokens);
-	}
-	else if (cmd == "logout" && connected) {
-		handleLogout();
-	}
+    const std::string& cmd = tokens[0];
+    std::size_t expectedWords = 0;
+    const char* usage = nullptr;
+
+    if (cmd == "login") {
+        expectedWords = 4;
+        usage = "Usage: login <host:port> <username> <password>";
+    } else if (cmd == "join") {
+        expectedWords = 2;
+        usage = "Usage: join <channel>";
+    } else if (cmd == "exit") {
+        expectedWords = 2;
+        usage = "Usage: exit <channel>";
+    } else if (cmd == "report") {
+        expectedWords = 2;
+        usage = "Usage: report <file>";
+    } else if (cmd == "summary") {
+        expectedWords = 4;
+        usage = "Usage: summary <channel> <user> <output-file>";
+    } else if (cmd == "logout") {
+        expectedWords = 1;
+        usage = "Usage: logout";
+    } else {
+        std::cout << "Unknown command: " << cmd << std::endl;
+        return;
+    }
+
+    if (tokens.size() != expectedWords) {
+        std::cout << usage << std::endl;
+        return;
+    }
+
+    if (cmd == "login") {
+        handleLogin(tokens);
+        return;
+    }
+    if (!connected) {
+        std::cout << "Please log in first." << std::endl;
+        return;
+    }
+
+    if (cmd == "join") handleJoin(tokens);
+    else if (cmd == "exit") handleExit(tokens);
+    else if (cmd == "report") handleReport(tokens);
+    else if (cmd == "summary") handleSummary(tokens);
+    else if (cmd == "logout") handleLogout();
 }
 
-StompClient::~StompClient(){
-	for(auto &item : channelEvents){
-		for(auto &it: item.second){
-			it.second.clear();
-			item.second.erase(it.first);
-		}
-		item.second.~map();
-	}
-	eventsMutex.~mutex();
-	for(auto &item : channelEvents){
-		channelEvents.erase(item.first);
-	}
-	for(auto &item : receipts){
-		receipts.erase(item.first);
-	}
-	for(auto &item : subscriptionIds){
-		subscriptionIds.erase(item.first);
-	}
-	channelEvents.~map();
-	receipts.~map();
-	subscriptionIds.~map();
-}
+StompClient::~StompClient() = default;
 
 int main(int argc, char *argv[]) {
 	std::string host = "127.0.0.1";

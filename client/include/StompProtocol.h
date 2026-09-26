@@ -63,4 +63,5 @@ public:
     bool unsubscribe(const std::string& subId, const std::string& receiptId);
     bool send(const std::string& destination, const std::string& eventDetails);
     void closeHandler();
+    void requestShutdown();
 };

@@ -222,3 +222,6 @@ void StompProtocol::closeHandler(){
     connectionHandler.close();
     ServerConnected = false;
 }
+void StompProtocol::requestShutdown() {
+    connectionHandler.requestShutdown();
+}

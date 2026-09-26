@@ -3,6 +3,7 @@
 #include <string>
 #include <iostream>
 #include <boost/asio.hpp>
+#include <mutex>
 
 using boost::asio::ip::tcp;
 
@@ -12,6 +13,8 @@ private:
 	const short port_;
 	boost::asio::io_context io_service_;   // Provides core I/O functionality
 	tcp::socket socket_;
+	std::mutex lifecycleMutex_;
+	int nativeSocket_;
 
 public:
 	ConnectionHandler(std::string host, short port);
@@ -47,5 +50,8 @@ public:
 
 	// Close down the connection properly.
 	void close();
+
+	// Wake a blocking read on Linux/WSL without concurrently closing the Asio object.
+	void requestShutdown();
 
 }; //class ConnectionHandler

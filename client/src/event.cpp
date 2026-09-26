@@ -2,6 +2,7 @@
 #include "../include/json.hpp"
 #include <iostream>
 #include <fstream>
+#include <stdexcept>
 #include <string>
 #include <map>
 #include <vector>
@@ -127,6 +128,9 @@ Event::Event(const std::string &frame_body): channel_name(""), city(""),
 names_and_events parseEventsFile(std::string json_path)
 {
     std::ifstream f(json_path);
+    if (!f.is_open()) {
+        throw std::runtime_error("Cannot open report file: " + json_path);
+    }
     json data = json::parse(f);
 
     std::string channel_name = data["channel_name"];

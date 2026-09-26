@@ -1,5 +1,7 @@
 #include "../include/ConnectionHandler.h"
 #include <boost/asio.hpp>
+#include <sys/socket.h>
+#include <cerrno>
 
 using boost::asio::ip::tcp;
 
@@ -10,13 +12,14 @@ using std::endl;
 using std::string;
 
 ConnectionHandler::ConnectionHandler(string host, short port) : host_(host), port_(port), io_service_(),
-                                                                socket_(io_service_) {}
+                                                                socket_(io_service_), lifecycleMutex_(), nativeSocket_(-1) {}
 
 ConnectionHandler::~ConnectionHandler() {
 	close();
 }
 
 bool ConnectionHandler::connect() {
+	std::lock_guard<std::mutex> lock(lifecycleMutex_);
 
 	std::cout << "Starting connect to "
 	          << host_ << ":" << port_ << std::endl;
@@ -26,6 +29,7 @@ bool ConnectionHandler::connect() {
 		socket_.connect(endpoint, error);
 		if (error)
 			throw boost::system::system_error(error);
+		nativeSocket_ = socket_.native_handle();
 	}
 	catch (std::exception &e) {
 		std::cerr << "Connection failed (Error: " << e.what() << ')' << std::endl;
@@ -108,9 +112,25 @@ bool ConnectionHandler::sendFrameAscii(const std::string &frame, char delimiter)
 
 // Close down the connection properly.
 void ConnectionHandler::close() {
+	std::lock_guard<std::mutex> lock(lifecycleMutex_);
+	nativeSocket_ = -1;
 	try {
 		socket_.close();
 	} catch (...) {
 		std::cout << "closing failed: connection already closed" << std::endl;
 	}
+}
+
+// Only stops socket I/O. The receive thread can then return and close normally.
+void ConnectionHandler::requestShutdown() {
+    std::lock_guard<std::mutex> lock(lifecycleMutex_);
+    if (nativeSocket_ < 0) return;
+    int result;
+    do {
+        result = ::shutdown(nativeSocket_, SHUT_RDWR);
+    } while (result == -1 && errno == EINTR);
+    // ENOTCONN is harmless when the peer has already disconnected.
+    if (result == -1 && errno != ENOTCONN) {
+        std::cerr << "Socket shutdown failed (errno=" << errno << ")" << std::endl;
+    }
 }
