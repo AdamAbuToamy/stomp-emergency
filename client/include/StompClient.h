@@ -25,7 +25,7 @@ private:
     std::map<int, std::string> receipts;
     std::map<std::string, int> subscriptionIds;
 
-    void handleFrame(const std::string& frame);
+    void handleFrame(const StompFrame& frame);
     void processCommand(const std::string& command);
     
     // Command handlers

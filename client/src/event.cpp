@@ -88,9 +88,6 @@ Event::Event(const std::string &frame_body): channel_name(""), city(""),
             if(key == "user") {
                 eventOwnerUser = val;
             }
-            if(key == "destination") {
-                channel_name = val;
-            }
             if(key == "city") {
                 city = val;
             }

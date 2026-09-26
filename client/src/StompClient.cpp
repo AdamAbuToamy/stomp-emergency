@@ -27,7 +27,7 @@ void StompClient::readFromSocket() {
 		if(ServerConnected){
 			try {
 				StompFrame frame = protocol.receiveFrame();
-				handleFrame(frame.toString());
+				handleFrame(frame);
 			
 			} 
 			catch (const std::runtime_error& e){}
@@ -55,77 +55,43 @@ void StompClient::readFromKeyboard() {
 	}
 }
 
-void StompClient::handleFrame(const std::string& frame) {
+void StompClient::handleFrame(const StompFrame& frame) {
+    const std::string frameType = frame.getCommand();
 
-	std::istringstream iss(frame);
-	std::string frameType;
-	iss >> frameType;
-
-	if (frameType == "CONNECTED") {
-		std::cout << "Login successful" << std::endl;
-		connected = true;
-		protocol.setConnected(true);
-	}
-	else if (frameType == "RECEIPT") {
-		std::string line;
-		std::string receiptId;
-		while (std::getline(iss, line)) {
-			if (line.find("receipt-id:") != std::string::npos) {
-				receiptId = line.substr(11);
-			}
-		}
-		
-		int receipt = std::stoi(receiptId);
-		if (receipt == -1) {
-			connected = false;
-			ServerConnected = false;
-			protocol.setConnected(false);
-			protocol.closeHandler();
-		} else {
-			std::cout << receipts[receipt] << std::endl;
-		}
-	}
-	else if (frameType == "MESSAGE") {
-		
-		std::string body;
-		bool bodyStart = false;
-		std::string line;
-		while (std::getline(iss, line)) {
-			if (line.empty() && !bodyStart) {
-				bodyStart = true;
-				continue;
-			}       
-
-			if (bodyStart) {
-				body += line + "\n";
-			}
-		}
-		
-		Event event(body);
-		std::lock_guard<std::mutex> lock(eventsMutex);
-		addEvent(event.get_channel_name(), event.getEventOwnerUser(), event);
-	}
-	else if (frameType == "ERROR") {
-		std::string line;
-		std::string body;
-		bool bodyStart = false;
-
-		while (std::getline(iss, line)) {
-			if (line.empty() && !bodyStart) {
-				bodyStart = true;
-				continue;
-			}
-			if (bodyStart) {
-				body += line + "\n";
-			}
-		}
-
-		connected = false;
-		ServerConnected = false;
-		protocol.setConnected(false);
-		protocol.closeHandler();
-		
-	}
+    if (frameType == "CONNECTED") {
+        connected = true;
+        protocol.setConnected(true);
+        std::cout << "Login successful" << std::endl;
+    } else if (frameType == "RECEIPT") {
+        const std::string receiptId = frame.getHeader("receipt-id");
+        const int receipt = std::stoi(receiptId);
+        if (receipt == -1) {
+            connected = false;
+            ServerConnected = false;
+            protocol.setConnected(false);
+            protocol.closeHandler();
+        } else {
+            std::cout << receipts[receipt] << std::endl;
+        }
+    } else if (frameType == "MESSAGE") {
+        const std::string channel = frame.getHeader("destination");
+        if (channel.empty()) {
+            std::cerr << "Message error: missing destination" << std::endl;
+            return;
+        }
+        Event event(frame.getBody());
+        std::lock_guard<std::mutex> lock(eventsMutex);
+        addEvent(channel, event.getEventOwnerUser(), event);
+    } else if (frameType == "ERROR") {
+        std::cerr << "Server error: " << frame.getHeader("message") << std::endl;
+        if (!frame.getBody().empty()) {
+            std::cerr << frame.getBody() << std::endl;
+        }
+        connected = false;
+        ServerConnected = false;
+        protocol.setConnected(false);
+        protocol.closeHandler();
+    }
 }
 
 void StompClient::handleLogin(const std::vector<std::string>& tokens) {
