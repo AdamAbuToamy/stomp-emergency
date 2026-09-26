@@ -80,14 +80,10 @@ Event::Event(const std::string &frame_body): channel_name(""), city(""),
     map<string, string> general_information_from_string;
     bool inGeneralInformation = false;
     while(getline(ss,line,'\n')){
-        vector<string> lineArgs;
-        if(line.find(':') != string::npos) {
-            split_str(line, ':', lineArgs);
-            string key = lineArgs.at(0);
-            string val;
-            if(lineArgs.size() == 2) {
-                val = lineArgs.at(1);
-            }
+        const auto separator = line.find(':');
+        if (separator != string::npos) {
+            const string key = line.substr(0, separator);
+            const string val = line.substr(separator + 1);
             if(key == "user") {
                 eventOwnerUser = val;
             }
@@ -112,10 +108,16 @@ Event::Event(const std::string &frame_body): channel_name(""), city(""),
                     eventDescription += line + "\n";
                 }
                 description = eventDescription;
+                // The remaining lines belong to the description, not general fields.
+                break;
             }
 
             if(inGeneralInformation) {
-                general_information_from_string[key.substr(1)] = val;
+                // Remove indentation without deleting a letter from an unindented key.
+                const auto firstCharacter = key.find_first_not_of(" \t");
+                if (firstCharacter != string::npos) {
+                    general_information_from_string[key.substr(firstCharacter)] = val;
+                }
             }
         }
     }
