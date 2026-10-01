@@ -75,6 +75,20 @@ Use disposable demo credentials.
 
 ## Tests
 
+### Automated build and test
+
+Run `python3 scripts/test_all.py` from the repository root.
+Stop any existing server on port 7777 first.
+
+The script builds Java and C++, runs three C++ parser checks, then
+runs the Python suite against fresh TPC and Reactor servers.
+It stops its servers afterwards and prints the server-log location.
+
+GitHub Actions runs the same script on Ubuntu with Java 17 for
+pushes and pull requests, and saves available server logs.
+
+[View test runs](https://github.com/AdamAbuToamy/stomp-emergency/actions)
+
 ### Python integration and client tests
 
 Build both components first and keep the Java server running on port 7777.
@@ -84,7 +98,7 @@ From the repository root:
 python3 -m unittest discover -s tests -v
 ```
 
-The repository contains **31 Python test methods**, covering:
+The repository contains **37 Python test methods**, covering:
 
 - Login, incorrect passwords, duplicate login and repeated CONNECT.
 - Subscription authorization, recipient-specific IDs and channel isolation.
@@ -93,6 +107,10 @@ The repository contains **31 Python test methods**, covering:
 - Real C++ client shutdown, incomplete commands and report file errors.
 - Report-to-summary behavior and routing metadata separated from report content.
 - Concurrent login attempts for the same username.
+- Simultaneous subscriptions to the same channel.
+- Requested client ports and invalid endpoint handling.
+- Summary snapshots while reports arrive.
+- Receipt handling and login again after logout.
 
 The concurrent-login test repeats its scenario 25 times. A passing run alone
 does not prove the absence of race conditions.
@@ -152,19 +170,25 @@ These tools check executed paths and do not establish thread safety.
 
 ## Verification status and remaining work
 
-Before the latest authentication-lock change, the 30-test Python suite passed
-locally. The three C++ parser checks also passed. Selected client shutdown and
-report-to-summary scenarios passed with ASan/UBSan enabled.
+The automated runner passed locally on Ubuntu/WSL: three C++ parser
+checks and 37 Python tests against each of TPC and Reactor.
+The GitHub Actions workflow also completed successfully.
 
-The concurrent-login test subsequently exposed a race in Reactor. A fix is
-included in this snapshot; a complete post-fix run in both modes has not yet
-been recorded in this README. No CI run is claimed.
+Recent improvements include concurrent channel creation fixes,
+configurable numeric IPv4 endpoints with port validation, protected
+summary snapshots and receipt tracking, and coordinated client
+session cleanup supporting login again after logout.
 
-Ongoing work includes shared-state concurrency review, reconnect behavior in
-the C++ client, configurable network endpoints, malformed-input handling,
-resource limits, automated test setup, logging and code organization.
-The client currently connects to 127.0.0.1:7777 despite accepting an endpoint
-in its login command.
+Selected client shutdown and report-to-summary scenarios previously
+passed with ASan/UBSan. A complete sanitizer run of the current suite
+is not claimed.
+
+Passing tests cover specific scenarios and do not prove the absence
+of race conditions or complete protocol correctness.
+
+Remaining work includes shared-state concurrency review, malformed
+input handling, resource limits, logging and code organization.
+Hostname resolution and IPv6 support are not claimed.
 
 This is an educational portfolio project. It is not an operational emergency
 system, and full STOMP 1.2 compliance is not claimed. The bundled `json.hpp`
