@@ -214,7 +214,17 @@ void StompClient::handleSummary(const std::vector<std::string>& tokens) {
 	std::string filename = tokens[3];
 	
 
-	auto& events = channelEvents[channel][user];
+	std::vector<Event> events;
+    {
+        std::lock_guard<std::mutex> lock(eventsMutex);
+        const auto channelIt = channelEvents.find(channel);
+        if (channelIt != channelEvents.end()) {
+            const auto userIt = channelIt->second.find(user);
+            if (userIt != channelIt->second.end()) {
+                events = userIt->second;
+            }
+        }
+    }
 	
 	// Calculate stats
 	int totalReports = events.size();
