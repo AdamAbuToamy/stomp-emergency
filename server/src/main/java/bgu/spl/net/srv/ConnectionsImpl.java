@@ -1,6 +1,6 @@
 package bgu.spl.net.srv;
 
-import java.util.LinkedList;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -9,7 +9,7 @@ public class ConnectionsImpl<T> implements Connections<T> {
     private final ConcurrentHashMap<Integer, ConnectionHandler<T>> clients;
     private AtomicInteger connectionCount;
 
-    private final ConcurrentHashMap<String, LinkedList<Integer>> channels;
+    private final ConcurrentHashMap<String, Set<Integer>> channels;
     public int getID(){
         return connectionCount.getAndIncrement();
     }
@@ -19,10 +19,6 @@ public class ConnectionsImpl<T> implements Connections<T> {
         this.channels = new ConcurrentHashMap<>();
         this.connectionCount = new AtomicInteger(0);
     }
-    private void addChannel(String channel){
-        channels.putIfAbsent(channel,new LinkedList<>());
-    }
-
     public static ConnectionsImpl<?> getInstance() {
         return instance;
     }
@@ -41,7 +37,7 @@ public class ConnectionsImpl<T> implements Connections<T> {
 
     @Override
     public void send(String channel, T msg) {
-        LinkedList<Integer> topic = channels.get(channel);
+        Set<Integer> topic = channels.get(channel);
         if(topic != null){
             synchronized (topic){
                 for(int subscriber : topic){
@@ -55,25 +51,22 @@ public class ConnectionsImpl<T> implements Connections<T> {
     public void disconnect(int connectionId) {
         clients.remove(connectionId);
         // Remove from all channels
-        for (LinkedList<Integer> subs : channels.values()) {
+        for (Set<Integer> subs : channels.values()) {
             subs.remove((Integer) connectionId);
         }
     }
 
-    public boolean unsubscribe(int connectionId, String channel){
-        return channels.get(channel).remove((Integer) connectionId);
+    public boolean unsubscribe(int connectionId, String channel) {
+        Set<Integer> members = channels.get(channel);
+        return members != null && members.remove(connectionId);
     }
-    public boolean subscribe(int connectionId,String channel){
 
-        boolean didAddChannel = false;
-        if(!channels.containsKey(channel)){
-            addChannel(channel);
-            didAddChannel = true;
-        }
-
-        channels.get(channel).addLast(connectionId);
-
-        return didAddChannel;
+    public boolean subscribe(int connectionId, String channel) {
+        Set<Integer> candidate = ConcurrentHashMap.newKeySet();
+        Set<Integer> existing = channels.putIfAbsent(channel, candidate);
+        Set<Integer> members = existing == null ? candidate : existing;
+        members.add(connectionId);
+        return existing == null;
     }
 
     public void connect(int connectionId, ConnectionHandler<?> handler) {

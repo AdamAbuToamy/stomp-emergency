@@ -98,20 +98,13 @@ public class StompMessagingProtocol implements MessagingProtocol<String> {
             );
         }
 
-        StompTopic topic;
-        if(connections.subscribe(connectionId,destination)){
-            topic = new StompTopic(destination);
-            topic.addSubscriber(connectionId,id);
-            topics.put(destination, topic);
-            subscriptions.putIfAbsent(connectionId, new HashMap<>());
-            subscriptions.get(connectionId).put(id, destination);
-        }
-        else{
-            topic = topics.get(destination);
-            topic.addSubscriber(connectionId, id);
-            subscriptions.putIfAbsent(connectionId, new HashMap<>());
-            subscriptions.get(connectionId).put(id, destination);
-        }
+        StompTopic topic =
+                topics.computeIfAbsent(destination, StompTopic::new);
+        topic.addSubscriber(connectionId, id);
+        connections.subscribe(connectionId, destination);
+        subscriptions.computeIfAbsent(connectionId, key -> new HashMap<>())
+                .put(id, destination);
+
         String receipt = frame.getHeader("receipt");
         return receipt != null ?
                 "RECEIPT\nreceipt-id:" + receipt + "\n\n\u0000" : null;

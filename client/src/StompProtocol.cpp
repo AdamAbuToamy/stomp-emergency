@@ -60,7 +60,7 @@ StompFrame::~StompFrame() = default;
 StompProtocol::StompProtocol(ConnectionHandler& handler) 
     : connectionHandler(handler), connected(false), ServerConnected(false) {}
 
-bool StompProtocol::connect(const std::string& host, const std::string& login, const std::string& passcode) {
+bool StompProtocol::connect(const std::string& host, unsigned short port, const std::string& login, const std::string& passcode) {
     if (connected) {
         std::cout << "The client is already logged in, log out before trying again" << std::endl;
         return false;
@@ -73,13 +73,14 @@ bool StompProtocol::connect(const std::string& host, const std::string& login, c
     connectFrame.addHeader("passcode", passcode);
 
     if(!ServerConnected){
-        if(!connectionHandler.connect()){
+        if(!connectionHandler.connect(host, port)){
             std::cout << "Could not connect to the server" << std::endl;
             return false;
         }
     }
 
     if (!sendFrame(connectFrame)) {
+        closeHandler();
         std::cout << "Could not connect to the server" << std::endl;
         return false;
     }

@@ -18,7 +18,9 @@ private:
     int nextReceiptId;
     StompProtocol& protocol;
     std::string currentUser;
+    std::mutex sessionMutex;
     std::mutex eventsMutex;
+    std::mutex receiptsMutex;
     
     // Map of channel -> user -> vector of events
     std::map<std::string, std::map<std::string, std::vector<Event>>> channelEvents;
@@ -35,6 +37,7 @@ private:
     void handleReport(const std::vector<std::string>& tokens);
     void handleSummary(const std::vector<std::string>& tokens);
     void handleLogout();
+    void resetSession();
     
     // Helper methods
     std::vector<std::string> splitCommand(const std::string& command);

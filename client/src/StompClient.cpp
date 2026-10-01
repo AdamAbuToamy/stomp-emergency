@@ -16,29 +16,33 @@ StompClient::StompClient(StompProtocol& protocol) :
 	nextReceiptId(0),
 	protocol(protocol),
 	currentUser(""),
-	eventsMutex(),
+	sessionMutex(),
+        eventsMutex(),
+	receiptsMutex(),
 	channelEvents(),
 	receipts(),
 	subscriptionIds(){}
 
 
 void StompClient::readFromSocket() {
-	while (!shouldTerminate) {
-		if(ServerConnected){
-			try {
-				StompFrame frame = protocol.receiveFrame();
-				handleFrame(frame);
-			
-			} 
-			catch (const std::runtime_error& e){}
-			catch (const int e){
-				connected = false;
-				ServerConnected = false;
-				protocol.setConnected(false);
-				protocol.closeHandler();
-			}
-		}
-	}
+    while (!shouldTerminate) {
+        if (ServerConnected) {
+            try {
+                StompFrame frame = protocol.receiveFrame();
+                handleFrame(frame);
+            } catch (const std::exception& error) {
+                std::lock_guard<std::mutex> lock(sessionMutex);
+                resetSession();
+                std::cerr << "Connection error: " << error.what() << std::endl;
+            } catch (int) {
+                std::lock_guard<std::mutex> lock(sessionMutex);
+                resetSession();
+                if (!shouldTerminate) {
+                    std::cout << "Connection closed" << std::endl;
+                }
+            }
+        }
+    }
 }
 
 void StompClient::readFromKeyboard() {
@@ -56,6 +60,7 @@ void StompClient::readFromKeyboard() {
 }
 
 void StompClient::handleFrame(const StompFrame& frame) {
+    std::lock_guard<std::mutex> sessionLock(sessionMutex);
     const std::string frameType = frame.getCommand();
 
     if (frameType == "CONNECTED") {
@@ -66,12 +71,21 @@ void StompClient::handleFrame(const StompFrame& frame) {
         const std::string receiptId = frame.getHeader("receipt-id");
         const int receipt = std::stoi(receiptId);
         if (receipt == -1) {
-            connected = false;
-            ServerConnected = false;
-            protocol.setConnected(false);
-            protocol.closeHandler();
+            resetSession();
+            std::cout << "Logout successful" << std::endl;
         } else {
-            std::cout << receipts[receipt] << std::endl;
+            std::string confirmation;
+            {
+                std::lock_guard<std::mutex> lock(receiptsMutex);
+                auto it = receipts.find(receipt);
+                if (it != receipts.end()) {
+                    confirmation = it->second;
+                    receipts.erase(it);
+                }
+            }
+            if (!confirmation.empty()) {
+                std::cout << confirmation << std::endl;
+            }
         }
     } else if (frameType == "MESSAGE") {
         const std::string channel = frame.getHeader("destination");
@@ -87,55 +101,107 @@ void StompClient::handleFrame(const StompFrame& frame) {
         if (!frame.getBody().empty()) {
             std::cerr << frame.getBody() << std::endl;
         }
-        connected = false;
-        ServerConnected = false;
-        protocol.setConnected(false);
-        protocol.closeHandler();
+        resetSession();
     }
 }
 
 void StompClient::handleLogin(const std::vector<std::string>& tokens) {
+    if (ServerConnected) {
+        std::cout << "Already connected or waiting for login. Log out first."
+                  << std::endl;
+        return;
+    }
 
-	std::string hostPort = tokens[1];
-	int colonPos = hostPort.find(':');
-	std::string host = hostPort.substr(0, colonPos);
-	std::string port = hostPort.substr(colonPos + 1);
+    const std::string& endpoint = tokens[1];
+    const std::size_t colon = endpoint.find(':');
 
-	currentUser = tokens[2];
-	std::string password = tokens[3];
+    if (colon == std::string::npos || colon == 0
+            || colon + 1 == endpoint.size()
+            || endpoint.find(':', colon + 1) != std::string::npos) {
+        std::cout << "Login error: expected IPv4:port." << std::endl;
+        return;
+    }
 
-	if(protocol.connect(host, currentUser, password)){
-		ServerConnected = true;
-	}
+    const std::string host = endpoint.substr(0, colon);
+    const std::string portText = endpoint.substr(colon + 1);
+    unsigned int port = 0;
+
+    for (char digit : portText) {
+        if (digit < '0' || digit > '9') {
+            std::cout << "Login error: port must be a number from 1 to 65535."
+                      << std::endl;
+            return;
+        }
+        port = port * 10 + static_cast<unsigned int>(digit - '0');
+        if (port > 65535) {
+            std::cout << "Login error: port must be from 1 to 65535."
+                      << std::endl;
+            return;
+        }
+    }
+
+    if (port == 0) {
+        std::cout << "Login error: port must be from 1 to 65535." << std::endl;
+        return;
+    }
+
+    if (protocol.connect(host, static_cast<unsigned short>(port),
+                         tokens[2], tokens[3])) {
+        currentUser = tokens[2];
+        ServerConnected = true;
+    }
 }
 
 void StompClient::handleJoin(const std::vector<std::string>& tokens) {
-	
-	std::string channel = tokens[1];
-	if(subscriptionIds.find(channel) == subscriptionIds.end()){
-		int subscriptionId = nextSubscriptionId++;
-		int receiptId = nextReceiptId++;
-		subscriptionIds[channel] = subscriptionId;
+    const std::string& channel = tokens[1];
+    if (subscriptionIds.find(channel) != subscriptionIds.end()) {
+        std::cout << "Already subscribed to " << channel << std::endl;
+        return;
+    }
 
-		if (protocol.subscribe(channel, std::to_string(subscriptionId), std::to_string(receiptId))) {
-		receipts[receiptId] = "Joined channel " + channel;
-		}
-	}
-	else{
-		std::cout << "User already logged in to " << channel << std::endl;
-	}
+    const int subscriptionId = nextSubscriptionId++;
+    const int receiptId = nextReceiptId++;
+    {
+        std::lock_guard<std::mutex> lock(receiptsMutex);
+        receipts[receiptId] = "Joined channel " + channel;
+    }
+
+    if (protocol.subscribe(channel, std::to_string(subscriptionId),
+                           std::to_string(receiptId))) {
+        subscriptionIds[channel] = subscriptionId;
+    } else {
+        {
+            std::lock_guard<std::mutex> lock(receiptsMutex);
+            receipts.erase(receiptId);
+        }
+        std::cerr << "Could not send subscription request." << std::endl;
+    }
 }
 
 void StompClient::handleExit(const std::vector<std::string>& tokens) {
-	
-	std::string channel = tokens[1];
-	int receiptId = nextReceiptId++;
-	
-	if (protocol.unsubscribe(std::to_string(subscriptionIds[channel]), std::to_string(receiptId))){
-		receipts[receiptId] = "Exited channel " + channel;
-		std::map<std::string, int>::iterator it = subscriptionIds.find(channel);
-		subscriptionIds.erase(it);
-	}
+    const std::string& channel = tokens[1];
+    auto subscription = subscriptionIds.find(channel);
+    if (subscription == subscriptionIds.end()) {
+        std::cout << "Not subscribed to " << channel << std::endl;
+        return;
+    }
+
+    const int receiptId = nextReceiptId++;
+    {
+        std::lock_guard<std::mutex> lock(receiptsMutex);
+        receipts[receiptId] = "Exited channel " + channel;
+    }
+
+    if (protocol.unsubscribe(std::to_string(subscription->second),
+                             std::to_string(receiptId))) {
+        subscriptionIds.erase(subscription);
+    } else {
+        {
+            std::lock_guard<std::mutex> lock(receiptsMutex);
+            receipts.erase(receiptId);
+        }
+        std::cerr << "Could not send unsubscribe request." << std::endl;
+    }
 }
 
 void StompClient::handleReport(const std::vector<std::string>& tokens) {
@@ -182,7 +248,17 @@ void StompClient::handleSummary(const std::vector<std::string>& tokens) {
 	std::string filename = tokens[3];
 	
 
-	auto& events = channelEvents[channel][user];
+	std::vector<Event> events;
+    {
+        std::lock_guard<std::mutex> lock(eventsMutex);
+        const auto channelIt = channelEvents.find(channel);
+        if (channelIt != channelEvents.end()) {
+            const auto userIt = channelIt->second.find(user);
+            if (userIt != channelIt->second.end()) {
+                events = userIt->second;
+            }
+        }
+    }
 	
 	// Calculate stats
 	int totalReports = events.size();
@@ -231,7 +307,38 @@ void StompClient::handleSummary(const std::vector<std::string>& tokens) {
 }
 
 void StompClient::handleLogout() {
-	protocol.disconnect();
+    if (protocol.disconnect()) {
+        // Keep receiving until the logout receipt arrives.
+        // Reject further authenticated commands in the meantime.
+        connected = false;
+    } else {
+        resetSession();
+        std::cerr << "Logout failed: connection closed." << std::endl;
+    }
+}
+
+// Caller holds sessionMutex. No blocking socket read holds that mutex.
+void StompClient::resetSession() {
+    protocol.setConnected(false);
+    protocol.closeHandler();
+
+    subscriptionIds.clear();
+    currentUser.clear();
+    nextSubscriptionId = 0;
+    nextReceiptId = 0;
+
+    {
+        std::lock_guard<std::mutex> lock(receiptsMutex);
+        receipts.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(eventsMutex);
+        channelEvents.clear();
+    }
+
+    connected = false;
+    // Publish readiness for a new login only after cleanup is complete.
+    ServerConnected = false;
 }
 
 void StompClient::addEvent(const std::string& channel, const std::string& user, const Event& event) {
@@ -257,6 +364,7 @@ std::vector<std::string> StompClient::splitCommand(const std::string& command) {
 }
 
 void StompClient::processCommand(const std::string& command) {
+    std::lock_guard<std::mutex> sessionLock(sessionMutex);
     const std::vector<std::string> tokens = splitCommand(command);
     if (tokens.empty()) return;
 
