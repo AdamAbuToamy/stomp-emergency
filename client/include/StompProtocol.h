@@ -4,6 +4,7 @@
 #include <string>
 #include <map>
 #include <vector>
+#include <atomic>
 
 // Represents a STOMP frame with its components
 class StompFrame {
@@ -33,8 +34,8 @@ public:
 class StompProtocol {
 private:
     ConnectionHandler& connectionHandler;
-    bool connected;
-    bool ServerConnected;
+    std::atomic<bool> connected;
+    std::atomic<bool> ServerConnected;
     
     // Helper methods
     StompFrame parseFrame(const std::string& rawFrame);

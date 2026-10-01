@@ -16,7 +16,8 @@ StompClient::StompClient(StompProtocol& protocol) :
 	nextReceiptId(0),
 	protocol(protocol),
 	currentUser(""),
-	eventsMutex(),
+	sessionMutex(),
+        eventsMutex(),
 	receiptsMutex(),
 	channelEvents(),
 	receipts(),
@@ -24,22 +25,24 @@ StompClient::StompClient(StompProtocol& protocol) :
 
 
 void StompClient::readFromSocket() {
-	while (!shouldTerminate) {
-		if(ServerConnected){
-			try {
-				StompFrame frame = protocol.receiveFrame();
-				handleFrame(frame);
-			
-			} 
-			catch (const std::runtime_error& e){}
-			catch (const int e){
-				connected = false;
-				ServerConnected = false;
-				protocol.setConnected(false);
-				protocol.closeHandler();
-			}
-		}
-	}
+    while (!shouldTerminate) {
+        if (ServerConnected) {
+            try {
+                StompFrame frame = protocol.receiveFrame();
+                handleFrame(frame);
+            } catch (const std::exception& error) {
+                std::lock_guard<std::mutex> lock(sessionMutex);
+                resetSession();
+                std::cerr << "Connection error: " << error.what() << std::endl;
+            } catch (int) {
+                std::lock_guard<std::mutex> lock(sessionMutex);
+                resetSession();
+                if (!shouldTerminate) {
+                    std::cout << "Connection closed" << std::endl;
+                }
+            }
+        }
+    }
 }
 
 void StompClient::readFromKeyboard() {
@@ -57,6 +60,7 @@ void StompClient::readFromKeyboard() {
 }
 
 void StompClient::handleFrame(const StompFrame& frame) {
+    std::lock_guard<std::mutex> sessionLock(sessionMutex);
     const std::string frameType = frame.getCommand();
 
     if (frameType == "CONNECTED") {
@@ -67,10 +71,8 @@ void StompClient::handleFrame(const StompFrame& frame) {
         const std::string receiptId = frame.getHeader("receipt-id");
         const int receipt = std::stoi(receiptId);
         if (receipt == -1) {
-            connected = false;
-            ServerConnected = false;
-            protocol.setConnected(false);
-            protocol.closeHandler();
+            resetSession();
+            std::cout << "Logout successful" << std::endl;
         } else {
             std::string confirmation;
             {
@@ -99,10 +101,7 @@ void StompClient::handleFrame(const StompFrame& frame) {
         if (!frame.getBody().empty()) {
             std::cerr << frame.getBody() << std::endl;
         }
-        connected = false;
-        ServerConnected = false;
-        protocol.setConnected(false);
-        protocol.closeHandler();
+        resetSession();
     }
 }
 
@@ -308,7 +307,38 @@ void StompClient::handleSummary(const std::vector<std::string>& tokens) {
 }
 
 void StompClient::handleLogout() {
-	protocol.disconnect();
+    if (protocol.disconnect()) {
+        // Keep receiving until the logout receipt arrives.
+        // Reject further authenticated commands in the meantime.
+        connected = false;
+    } else {
+        resetSession();
+        std::cerr << "Logout failed: connection closed." << std::endl;
+    }
+}
+
+// Caller holds sessionMutex. No blocking socket read holds that mutex.
+void StompClient::resetSession() {
+    protocol.setConnected(false);
+    protocol.closeHandler();
+
+    subscriptionIds.clear();
+    currentUser.clear();
+    nextSubscriptionId = 0;
+    nextReceiptId = 0;
+
+    {
+        std::lock_guard<std::mutex> lock(receiptsMutex);
+        receipts.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(eventsMutex);
+        channelEvents.clear();
+    }
+
+    connected = false;
+    // Publish readiness for a new login only after cleanup is complete.
+    ServerConnected = false;
 }
 
 void StompClient::addEvent(const std::string& channel, const std::string& user, const Event& event) {
@@ -334,6 +364,7 @@ std::vector<std::string> StompClient::splitCommand(const std::string& command) {
 }
 
 void StompClient::processCommand(const std::string& command) {
+    std::lock_guard<std::mutex> sessionLock(sessionMutex);
     const std::vector<std::string> tokens = splitCommand(command);
     if (tokens.empty()) return;
 

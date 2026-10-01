@@ -80,6 +80,7 @@ bool StompProtocol::connect(const std::string& host, unsigned short port, const 
     }
 
     if (!sendFrame(connectFrame)) {
+        closeHandler();
         std::cout << "Could not connect to the server" << std::endl;
         return false;
     }
