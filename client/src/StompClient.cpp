@@ -17,6 +17,7 @@ StompClient::StompClient(StompProtocol& protocol) :
 	protocol(protocol),
 	currentUser(""),
 	eventsMutex(),
+	receiptsMutex(),
 	channelEvents(),
 	receipts(),
 	subscriptionIds(){}
@@ -71,7 +72,18 @@ void StompClient::handleFrame(const StompFrame& frame) {
             protocol.setConnected(false);
             protocol.closeHandler();
         } else {
-            std::cout << receipts[receipt] << std::endl;
+            std::string confirmation;
+            {
+                std::lock_guard<std::mutex> lock(receiptsMutex);
+                auto it = receipts.find(receipt);
+                if (it != receipts.end()) {
+                    confirmation = it->second;
+                    receipts.erase(it);
+                }
+            }
+            if (!confirmation.empty()) {
+                std::cout << confirmation << std::endl;
+            }
         }
     } else if (frameType == "MESSAGE") {
         const std::string channel = frame.getHeader("destination");
@@ -142,32 +154,55 @@ void StompClient::handleLogin(const std::vector<std::string>& tokens) {
 }
 
 void StompClient::handleJoin(const std::vector<std::string>& tokens) {
-	
-	std::string channel = tokens[1];
-	if(subscriptionIds.find(channel) == subscriptionIds.end()){
-		int subscriptionId = nextSubscriptionId++;
-		int receiptId = nextReceiptId++;
-		subscriptionIds[channel] = subscriptionId;
+    const std::string& channel = tokens[1];
+    if (subscriptionIds.find(channel) != subscriptionIds.end()) {
+        std::cout << "Already subscribed to " << channel << std::endl;
+        return;
+    }
 
-		if (protocol.subscribe(channel, std::to_string(subscriptionId), std::to_string(receiptId))) {
-		receipts[receiptId] = "Joined channel " + channel;
-		}
-	}
-	else{
-		std::cout << "User already logged in to " << channel << std::endl;
-	}
+    const int subscriptionId = nextSubscriptionId++;
+    const int receiptId = nextReceiptId++;
+    {
+        std::lock_guard<std::mutex> lock(receiptsMutex);
+        receipts[receiptId] = "Joined channel " + channel;
+    }
+
+    if (protocol.subscribe(channel, std::to_string(subscriptionId),
+                           std::to_string(receiptId))) {
+        subscriptionIds[channel] = subscriptionId;
+    } else {
+        {
+            std::lock_guard<std::mutex> lock(receiptsMutex);
+            receipts.erase(receiptId);
+        }
+        std::cerr << "Could not send subscription request." << std::endl;
+    }
 }
 
 void StompClient::handleExit(const std::vector<std::string>& tokens) {
-	
-	std::string channel = tokens[1];
-	int receiptId = nextReceiptId++;
-	
-	if (protocol.unsubscribe(std::to_string(subscriptionIds[channel]), std::to_string(receiptId))){
-		receipts[receiptId] = "Exited channel " + channel;
-		std::map<std::string, int>::iterator it = subscriptionIds.find(channel);
-		subscriptionIds.erase(it);
-	}
+    const std::string& channel = tokens[1];
+    auto subscription = subscriptionIds.find(channel);
+    if (subscription == subscriptionIds.end()) {
+        std::cout << "Not subscribed to " << channel << std::endl;
+        return;
+    }
+
+    const int receiptId = nextReceiptId++;
+    {
+        std::lock_guard<std::mutex> lock(receiptsMutex);
+        receipts[receiptId] = "Exited channel " + channel;
+    }
+
+    if (protocol.unsubscribe(std::to_string(subscription->second),
+                             std::to_string(receiptId))) {
+        subscriptionIds.erase(subscription);
+    } else {
+        {
+            std::lock_guard<std::mutex> lock(receiptsMutex);
+            receipts.erase(receiptId);
+        }
+        std::cerr << "Could not send unsubscribe request." << std::endl;
+    }
 }
 
 void StompClient::handleReport(const std::vector<std::string>& tokens) {

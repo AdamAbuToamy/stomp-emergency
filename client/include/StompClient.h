@@ -19,6 +19,7 @@ private:
     StompProtocol& protocol;
     std::string currentUser;
     std::mutex eventsMutex;
+    std::mutex receiptsMutex;
     
     // Map of channel -> user -> vector of events
     std::map<std::string, std::map<std::string, std::vector<Event>>> channelEvents;
