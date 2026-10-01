@@ -95,18 +95,50 @@ void StompClient::handleFrame(const StompFrame& frame) {
 }
 
 void StompClient::handleLogin(const std::vector<std::string>& tokens) {
+    if (ServerConnected) {
+        std::cout << "Already connected or waiting for login. Log out first."
+                  << std::endl;
+        return;
+    }
 
-	std::string hostPort = tokens[1];
-	int colonPos = hostPort.find(':');
-	std::string host = hostPort.substr(0, colonPos);
-	std::string port = hostPort.substr(colonPos + 1);
+    const std::string& endpoint = tokens[1];
+    const std::size_t colon = endpoint.find(':');
 
-	currentUser = tokens[2];
-	std::string password = tokens[3];
+    if (colon == std::string::npos || colon == 0
+            || colon + 1 == endpoint.size()
+            || endpoint.find(':', colon + 1) != std::string::npos) {
+        std::cout << "Login error: expected IPv4:port." << std::endl;
+        return;
+    }
 
-	if(protocol.connect(host, currentUser, password)){
-		ServerConnected = true;
-	}
+    const std::string host = endpoint.substr(0, colon);
+    const std::string portText = endpoint.substr(colon + 1);
+    unsigned int port = 0;
+
+    for (char digit : portText) {
+        if (digit < '0' || digit > '9') {
+            std::cout << "Login error: port must be a number from 1 to 65535."
+                      << std::endl;
+            return;
+        }
+        port = port * 10 + static_cast<unsigned int>(digit - '0');
+        if (port > 65535) {
+            std::cout << "Login error: port must be from 1 to 65535."
+                      << std::endl;
+            return;
+        }
+    }
+
+    if (port == 0) {
+        std::cout << "Login error: port must be from 1 to 65535." << std::endl;
+        return;
+    }
+
+    if (protocol.connect(host, static_cast<unsigned short>(port),
+                         tokens[2], tokens[3])) {
+        currentUser = tokens[2];
+        ServerConnected = true;
+    }
 }
 
 void StompClient::handleJoin(const std::vector<std::string>& tokens) {

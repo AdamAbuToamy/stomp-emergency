@@ -19,12 +19,16 @@ ConnectionHandler::~ConnectionHandler() {
 }
 
 bool ConnectionHandler::connect() {
+    return connect(host_, static_cast<unsigned short>(port_));
+}
+
+bool ConnectionHandler::connect(const std::string& host, unsigned short port) {
 	std::lock_guard<std::mutex> lock(lifecycleMutex_);
 
 	std::cout << "Starting connect to "
-	          << host_ << ":" << port_ << std::endl;
+	          << host << ":" << port << std::endl;
 	try {
-		tcp::endpoint endpoint(boost::asio::ip::make_address(host_), port_); // the server endpoint
+		tcp::endpoint endpoint(boost::asio::ip::make_address(host), port); // the server endpoint
 		boost::system::error_code error;
 		socket_.connect(endpoint, error);
 		if (error)

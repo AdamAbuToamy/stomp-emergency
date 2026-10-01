@@ -44,7 +44,7 @@ public:
     StompProtocol(ConnectionHandler& handler);
     
     // Connect to STOMP server
-    bool connect(const std::string& host, const std::string& login, const std::string& passcode);
+    bool connect(const std::string& host, unsigned short port, const std::string& login, const std::string& passcode);
     
     // Send a STOMP frame
     bool sendFrame(const StompFrame& frame);
