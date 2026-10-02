@@ -105,7 +105,7 @@ def main():
         with log_path.open("w") as log:
             server = subprocess.Popen([
                 "java", "-cp", "server/target/classes",
-                "bgu.spl.net.impl.stomp.StompServer", str(PORT), mode,
+                "io.github.adamabutoamy.stomp.protocol.StompServer", str(PORT), mode,
             ], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
                 start_new_session=True)
 

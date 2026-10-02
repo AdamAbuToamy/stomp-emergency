@@ -36,7 +36,7 @@ make -C client
 From the repository root, start the server in one terminal:
 
 ```bash
-java -cp server/target/classes bgu.spl.net.impl.stomp.StompServer 7777 tpc
+java -cp server/target/classes io.github.adamabutoamy.stomp.protocol.StompServer 7777 tpc
 ```
 
 Use `reactor` instead of `tpc` to run the other mode. Run only one server on
