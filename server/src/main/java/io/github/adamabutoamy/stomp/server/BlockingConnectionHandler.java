@@ -1,12 +1,12 @@
-package bgu.spl.net.srv;
+package io.github.adamabutoamy.stomp.server;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.net.Socket;
 
-import bgu.spl.net.api.MessageEncoderDecoder;
-import bgu.spl.net.api.MessagingProtocol;
+import io.github.adamabutoamy.stomp.api.MessageEncoderDecoder;
+import io.github.adamabutoamy.stomp.api.MessagingProtocol;
 
 public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler<T> {
 

@@ -3,7 +3,7 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package bgu.spl.net.srv;
+package io.github.adamabutoamy.stomp.server;
 
 import java.io.Closeable;
 

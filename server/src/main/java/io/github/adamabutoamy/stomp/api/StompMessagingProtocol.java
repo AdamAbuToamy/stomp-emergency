@@ -1,6 +1,6 @@
-package bgu.spl.net.api;
+package io.github.adamabutoamy.stomp.api;
 
-import bgu.spl.net.srv.Connections;
+import io.github.adamabutoamy.stomp.server.Connections;
 
 public interface StompMessagingProtocol<T>  {
 	/**

@@ -1,4 +1,4 @@
-package bgu.spl.net.srv;
+package io.github.adamabutoamy.stomp.server;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -6,8 +6,8 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import bgu.spl.net.api.MessageEncoderDecoder;
-import bgu.spl.net.api.MessagingProtocol;
+import io.github.adamabutoamy.stomp.api.MessageEncoderDecoder;
+import io.github.adamabutoamy.stomp.api.MessagingProtocol;
 
 public class NonBlockingConnectionHandler<T> implements ConnectionHandler<T> {
     private static final int BUFFER_ALLOCATION_SIZE = 1 << 13;

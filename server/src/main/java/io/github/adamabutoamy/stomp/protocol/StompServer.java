@@ -1,5 +1,5 @@
-package bgu.spl.net.impl.stomp;
-import bgu.spl.net.srv.Server;
+package io.github.adamabutoamy.stomp.protocol;
+import io.github.adamabutoamy.stomp.server.Server;
 
 public class StompServer {
 

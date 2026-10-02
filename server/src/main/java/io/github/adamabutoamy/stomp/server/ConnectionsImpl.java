@@ -1,4 +1,4 @@
-package bgu.spl.net.srv;
+package io.github.adamabutoamy.stomp.server;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;

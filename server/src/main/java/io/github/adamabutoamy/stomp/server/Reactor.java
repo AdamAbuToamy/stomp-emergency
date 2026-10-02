@@ -1,7 +1,7 @@
-package bgu.spl.net.srv;
+package io.github.adamabutoamy.stomp.server;
 
-import bgu.spl.net.api.MessageEncoderDecoder;
-import bgu.spl.net.api.MessagingProtocol;
+import io.github.adamabutoamy.stomp.api.MessageEncoderDecoder;
+import io.github.adamabutoamy.stomp.api.MessagingProtocol;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.ClosedSelectorException;

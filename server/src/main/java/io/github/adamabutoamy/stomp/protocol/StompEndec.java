@@ -1,6 +1,6 @@
-package bgu.spl.net.impl.stomp;
+package io.github.adamabutoamy.stomp.protocol;
 
-import bgu.spl.net.api.MessageEncoderDecoder;
+import io.github.adamabutoamy.stomp.api.MessageEncoderDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 

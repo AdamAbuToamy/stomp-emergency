@@ -1,4 +1,4 @@
-package bgu.spl.net.api;
+package io.github.adamabutoamy.stomp.api;
 
 public interface MessageEncoderDecoder<T> {
 

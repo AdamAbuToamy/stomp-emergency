@@ -1,4 +1,4 @@
-package bgu.spl.net.srv;
+package io.github.adamabutoamy.stomp.server;
 
 import java.util.LinkedList;
 import java.util.Map;

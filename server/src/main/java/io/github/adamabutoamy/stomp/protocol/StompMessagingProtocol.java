@@ -1,11 +1,11 @@
-package bgu.spl.net.impl.stomp;
+package io.github.adamabutoamy.stomp.protocol;
 
 import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
-import bgu.spl.net.api.MessagingProtocol;
-import bgu.spl.net.srv.Connections;
-import bgu.spl.net.srv.ConnectionsImpl;
+import io.github.adamabutoamy.stomp.api.MessagingProtocol;
+import io.github.adamabutoamy.stomp.server.Connections;
+import io.github.adamabutoamy.stomp.server.ConnectionsImpl;
 
 public class StompMessagingProtocol implements MessagingProtocol<String> {
     // One shared lock: each connection has its own protocol instance.
