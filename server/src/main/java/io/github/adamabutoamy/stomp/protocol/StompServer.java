@@ -17,7 +17,12 @@ public class StompServer {
                     StompMessagingProtocol::new,
                     StompEndec::new
             );
-            server.serve();
+            ServerMonitor monitor = ServerMonitor.start(port, serverType);
+            try {
+                server.serve();
+            } finally {
+                if (monitor != null) monitor.close();
+            }
         }
         else if (serverType.equals("reactor")) {
             Server<String> server = Server.reactor(
@@ -26,7 +31,12 @@ public class StompServer {
                     StompMessagingProtocol::new,
                     StompEndec::new
             );
-            server.serve();
+            ServerMonitor monitor = ServerMonitor.start(port, serverType);
+            try {
+                server.serve();
+            } finally {
+                if (monitor != null) monitor.close();
+            }
         }
         else {
             System.out.println("Invalid server type. Use 'reactor' or 'tpc'");

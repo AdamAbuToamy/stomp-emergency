@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Emergency Reports</title>
+<style>
+:root {
+  font-family: Arial, sans-serif;
+  color: #252a30;
+  background: #f5f6f7;
+  font-size: 15px;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; }
+button,input,select,textarea { font: inherit; }
+textarea {
+  width: 100%; padding: 11px; margin-top: 7px; resize: vertical;
+  border: 1px solid #bbc1c8; border-radius: 5px; min-height: 110px;
+}
+.check {
+  display: flex; align-items: center; gap: 9px;
+  font-weight: normal;
+}
+.check input { width: auto; margin: 0; }
+button {
+  padding: 10px 16px; border: 1px solid #bbc1c8;
+  border-radius: 5px; background: white; color: #252a30;
+  cursor: pointer;
+}
+button:hover { background: #eef0f2; }
+button.primary { background: #354f69; color: white; border-color: #354f69; }
+button.primary:hover { background: #294057; }
+button:disabled { opacity: .5; cursor: default; }
+input,select {
+  width: 100%; padding: 11px; border: 1px solid #bbc1c8;
+  border-radius: 5px; background: white; color: #252a30;
+}
+input:focus,button:focus-visible,select:focus {
+  outline: 2px solid #6686a5; outline-offset: 2px;
+}
+label { display: block; margin-bottom: 16px; font-weight: 600; }
+label input,label select { margin-top: 7px; font-weight: normal; }
+h1 { font-size: 25px; margin: 0 0 12px; }
+h2 { font-size: 21px; margin: 0 0 10px; }
+h3 { font-size: 17px; margin: 0 0 8px; }
+p { line-height: 1.55; }
+.muted { color: #646c75; }
+.small { font-size: 13px; }
+.login {
+  max-width: 410px; margin: 10vh auto; padding: 32px;
+  background: white; border: 1px solid #dcdfe3; border-radius: 7px;
+}
+.login .primary { width: 100%; }
+details { margin: 20px 0; }
+summary { cursor: pointer; color: #58616b; }
+details .fields { padding-top: 18px; }
+header {
+  background: white; border-bottom: 1px solid #dcdfe3;
+  padding: 18px 28px; display: flex; justify-content: space-between;
+  align-items: center; gap: 16px; flex-wrap: wrap;
+}
+header strong { font-size: 19px; }
+.account { display: flex; align-items: center; gap: 16px; }
+main { max-width: 1100px; padding: 24px; margin: auto; }
+nav { display: flex; gap: 8px; border-bottom: 1px solid #dcdfe3; padding-bottom: 16px; }
+nav button { border-color: transparent; background: transparent; }
+nav button.active { background: white; border-color: #bbc1c8; font-weight: bold; }
+.layout { display: grid; grid-template-columns: 270px 1fr; gap: 24px; margin-top: 24px; }
+.panel { background: white; border: 1px solid #dcdfe3; border-radius: 6px; padding: 22px; }
+.panel + .panel { margin-top: 20px; }
+.row { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+.row label { flex: 1; min-width: 150px; }
+.notice { margin: 14px 0; color: #495766; min-height: 20px; }
+.error { color: #a12d27; }
+.channel {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; border-top: 1px solid #e6e8eb; padding: 12px 0;
+}
+.channel span { overflow-wrap: anywhere; }
+.channel button { padding: 5px 9px; font-size: 13px; }
+.report { border-top: 1px solid #e0e3e7; padding: 18px 0; }
+.report p { margin: 7px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.empty { padding: 28px 0; color: #707780; }
+pre {
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 400px;
+  overflow: auto; background: #f5f6f7; padding: 16px; font-size: 13px;
+}
+#connectionNote { margin-bottom: 12px; }
+@media(max-width:720px) {
+  .layout { grid-template-columns: 1fr; }
+  main { padding: 16px; }
+  header { padding: 16px; }
+  .login { margin: 6vh 16px; max-width: none; }
+}
+</style>
+</head>
+<body>
+<section id="loginPage" class="login">
+  <h1>Emergency Reports</h1>
+  <p class="muted">Sign in to view and share reports.</p>
+  <form id="loginForm">
+    <label>Username
+      <input id="username" autocomplete="username" maxlength="100" required>
+    </label>
+    <label>Password
+      <input id="password" type="password" autocomplete="current-password"
+             maxlength="100" required>
+    </label>
+    <details>
+      <summary>Connection settings</summary>
+      <div class="fields">
+        <label>Server address
+          <input id="host" value="127.0.0.1" required>
+        </label>
+        <label>Port
+          <input id="port" type="number" value="7777" min="1" max="65535" required>
+        </label>
+      </div>
+    </details>
+    <p id="loginMessage" class="notice" role="status"></p>
+    <button id="connect" class="primary">Sign in</button>
+  </form>
+</section>
+
+<div id="appPage" hidden>
+  <header>
+    <strong>Emergency Reports</strong>
+    <div class="account">
+      <span id="accountName"></span>
+      <button id="logout">Sign out</button>
+    </div>
+  </header>
+  <main>
+    <p id="connectionNote" class="notice" role="status"></p>
+    <nav aria-label="Main navigation">
+      <button data-view="reportsView" class="active">Reports</button>
+      <button data-view="summaryView">Summary</button>
+      <button data-view="systemView">System</button>
+    </nav>
+
+    <section id="reportsView" class="view">
+      <div class="layout">
+        <aside class="panel">
+          <h2>Your channels</h2>
+          <p class="muted small">Join a channel to receive its reports.</p>
+          <form id="channelForm">
+            <label>Channel name
+              <input id="channel" placeholder="e.g. police" maxlength="100" required>
+            </label>
+            <button class="primary">Join channel</button>
+          </form>
+          <p id="channelStatus" class="notice small" role="status"></p>
+          <div id="channelList"></div>
+        </aside>
+        <div>
+          <section class="panel">
+            <h2>New report</h2>
+            <p class="muted small">Describe the event and share it with your channel.</p>
+            <form id="composeForm">
+              <label>Send to
+                <select id="composeChannel" required></select>
+              </label>
+              <div class="row">
+                <label>Report title
+                  <input id="composeTitle" maxlength="120"
+                         placeholder="e.g. Road closed" required>
+                </label>
+                <label>City
+                  <input id="composeCity" maxlength="100"
+                         placeholder="City or location" required>
+                </label>
+              </div>
+              <label>What happened?
+                <textarea id="composeDescription" maxlength="5000"
+                          placeholder="Describe the situation..." required></textarea>
+              </label>
+              <label class="check">
+                <input id="composeActive" type="checkbox" checked>
+                Event is still active
+              </label>
+              <label class="check">
+                <input id="composeArrived" type="checkbox">
+                Response team has arrived
+              </label>
+              <button id="composeSend" class="primary">Send report</button>
+              <p id="composeStatus" class="notice" role="status"></p>
+            </form>
+            <details>
+              <summary>Import a report from a JSON file</summary>
+              <p class="muted small">The file determines its destination channel.</p>
+            <label>Report file
+              <input id="reportFile" type="file" accept=".json,application/json">
+            </label>
+            <p id="fileInfo" class="muted small">No file selected.</p>
+            <button id="sendReport" class="primary" disabled>Send report</button>
+            <p id="reportStatus" class="notice" role="status"></p>
+            </details>
+          </section>
+          <section class="panel">
+            <h2>Received reports</h2>
+            <div id="reportsEmpty" class="empty">No reports received in this session.</div>
+            <div id="reports"></div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <section id="summaryView" class="view panel" hidden style="margin-top:24px">
+      <h2>Report summary</h2>
+      <p class="muted">Summarize reports received in this session by channel and author.</p>
+      <form id="summaryForm">
+        <div class="row">
+          <label>Channel<input id="summaryChannel" placeholder="police" required></label>
+          <label>Report author<input id="summaryUser" required></label>
+        </div>
+        <button class="primary">Generate summary</button>
+        <button id="downloadSummary" type="button" disabled>Download text file</button>
+      </form>
+      <p id="summaryStatus" class="notice" role="status"></p>
+      <pre id="summaryText" hidden></pre>
+    </section>
+
+    <section id="systemView" class="view panel" hidden style="margin-top:24px">
+      <h2>Server overview</h2>
+      <p id="monitorStatus" role="status">Checking local server...</p>
+      <div id="monitorValues" hidden>
+        <div class="row">
+          <div class="panel">
+            <strong id="metricConnections">—</strong>
+            <p class="muted small">Open connections</p>
+          </div>
+          <div class="panel">
+            <strong id="metricUsers">—</strong>
+            <p class="muted small">Signed-in users</p>
+          </div>
+          <div class="panel">
+            <strong id="metricChannels">—</strong>
+            <p class="muted small">Channels with subscribers</p>
+          </div>
+        </div>
+        <p id="monitorDetails" class="muted small"></p>
+      </div>
+      <hr style="border:0;border-top:1px solid #dcdfe3;margin:24px 0">
+      <h2>System activity</h2>
+      <p class="muted">Technical information for troubleshooting.</p>
+      <label>Server log level
+        <select id="logLevel">
+          <option value="ALL">All events</option>
+          <option value="INFO">Information</option>
+          <option value="WARNING">Warnings</option>
+          <option value="SEVERE">Errors</option>
+        </select>
+      </label>
+      <p id="serverLogStatus" class="muted small"></p>
+      <pre id="serverLogs">No events loaded.</pre>
+      <details>
+        <summary>Client diagnostics</summary>
+        <pre id="clientEvents"></pre>
+      </details>
+    </section>
+  </main>
+</div>
+
+<script>
+const el = id => document.getElementById(id);
+const channels = new Set();
+let connected = false;
+let report = null;
+let summaryContent = "";
+let serverLines = [];
+const history = [];
+
+function message(id, text, error = false) {
+  el(id).textContent = text;
+  el(id).classList.toggle("error", error);
+}
+
+function showView(id) {
+  document.querySelectorAll(".view").forEach(v => v.hidden = v.id !== id);
+  document.querySelectorAll("[data-view]").forEach(b =>
+    b.classList.toggle("active", b.dataset.view === id));
+}
+document.querySelectorAll("[data-view]").forEach(b =>
+  b.addEventListener("click", () => showView(b.dataset.view)));
+
+async function request(action, data = {}) {
+  const response = await fetch("/command", {
+    method: "POST",
+    headers: {"Content-Type":"application/json", "X-STOMP-UI":"1"},
+    body: JSON.stringify({action, ...data})
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Request failed.");
+}
+
+function drawChannels() {
+  const selected = el("composeChannel").value;
+  el("composeChannel").replaceChildren();
+  if (!channels.size) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Join a channel first";
+    el("composeChannel").append(option);
+  } else {
+    for (const name of channels) {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      el("composeChannel").append(option);
+    }
+    if (channels.has(selected)) el("composeChannel").value = selected;
+  }
+  el("composeSend").disabled = !connected || !channels.size;
+  el("channelList").replaceChildren();
+  if (!channels.size) {
+    const p = document.createElement("p");
+    p.className = "muted small";
+    p.textContent = "You have not joined any channels.";
+    el("channelList").append(p);
+  }
+  for (const channel of channels) {
+    const row = document.createElement("div");
+    row.className = "channel";
+    const label = document.createElement("span");
+    label.textContent = channel;
+    const button = document.createElement("button");
+    button.textContent = "Leave";
+    button.onclick = async () => {
+      button.disabled = true;
+      try {
+        await request("leave", {channel});
+      } catch (error) {
+        message("channelStatus", error.message, true);
+        button.disabled = false;
+      }
+    };
+    row.append(label, button);
+    el("channelList").append(row);
+  }
+}
+
+function resetSession(text, error = false) {
+  connected = false;
+  channels.clear();
+  report = null;
+  summaryContent = "";
+  el("appPage").hidden = true;
+  el("loginPage").hidden = false;
+  el("connect").disabled = false;
+  el("logout").disabled = false;
+  el("password").value = "";
+  el("reportFile").value = "";
+  el("composeForm").reset();
+  message("composeStatus", "");
+  el("sendReport").disabled = true;
+  el("reports").replaceChildren();
+  el("reportsEmpty").hidden = false;
+  el("summaryText").textContent = "";
+  el("summaryText").hidden = true;
+  el("downloadSummary").disabled = true;
+  message("loginMessage", text, error);
+  for (const id of ["channelStatus","reportStatus","summaryStatus","connectionNote"])
+    message(id, "");
+  el("fileInfo").textContent = "No file selected.";
+  drawChannels();
+}
+
+el("loginForm").onsubmit = async event => {
+  event.preventDefault();
+  el("connect").disabled = true;
+  message("loginMessage", "Signing in...");
+  try {
+    await request("login", {
+      host: el("host").value.trim(), port: el("port").value,
+      username: el("username").value, password: el("password").value
+    });
+  } catch (error) {
+    message("loginMessage", error.message, true);
+    el("connect").disabled = false;
+  }
+};
+
+el("logout").onclick = async () => {
+  el("logout").disabled = true;
+  message("connectionNote", "Signing out...");
+  try {
+    await request("logout");
+  } catch (error) {
+    message("connectionNote", error.message, true);
+    el("logout").disabled = false;
+  }
+};
+
+el("channelForm").onsubmit = async event => {
+  event.preventDefault();
+  const channel = el("channel").value.trim();
+  if (channels.has(channel)) {
+    message("channelStatus", "You have already joined this channel.");
+    return;
+  }
+  message("channelStatus", "Joining channel...");
+  try { await request("join", {channel}); }
+  catch (error) { message("channelStatus", error.message, true); }
+};
+
+el("composeForm").onsubmit = async event => {
+  event.preventDefault();
+  const channel = el("composeChannel").value;
+  const title = el("composeTitle").value.trim();
+  const city = el("composeCity").value.trim();
+  const description = el("composeDescription").value.trim();
+
+  if (!connected || !channels.has(channel)) {
+    message("composeStatus", "Join the destination channel first.", true);
+    return;
+  }
+  if (!title || !city || !description) {
+    message("composeStatus", "Enter a title, city and description.", true);
+    return;
+  }
+
+  const report = {
+    channel_name: channel,
+    events: [{
+      event_name: title,
+      city,
+      date_time: Math.floor(Date.now() / 1000),
+      description,
+      general_information: {
+        active: el("composeActive").checked,
+        forces_arrival_at_scene: el("composeArrived").checked
+      }
+    }]
+  };
+
+  el("composeSend").disabled = true;
+  message("composeStatus", "Submitting report...");
+  try {
+    await request("report", {report});
+    message("composeStatus",
+      "Submitted for processing. Check Received reports below for delivery.");
+    el("composeTitle").value = "";
+    el("composeDescription").value = "";
+  } catch (error) {
+    message("composeStatus", error.message, true);
+  } finally {
+    el("composeSend").disabled = !connected || !channels.size;
+  }
+};
+
+el("reportFile").onchange = async () => {
+  report = null;
+  el("sendReport").disabled = true;
+  message("reportStatus", "");
+  const file = el("reportFile").files[0];
+  if (!file) {
+    el("fileInfo").textContent = "No file selected.";
+    return;
+  }
+  try {
+    if (file.size > 200000) throw new Error("Choose a file smaller than 200 KB.");
+    const candidate = JSON.parse(await file.text());
+    if (!candidate || typeof candidate.channel_name !== "string" ||
+        !candidate.channel_name || !Array.isArray(candidate.events))
+      throw new Error("This file is not a supported report.");
+    report = candidate;
+    el("fileInfo").textContent =
+      "Destination: " + report.channel_name + " · Reports: " + report.events.length;
+    el("sendReport").disabled = false;
+  } catch (error) {
+    el("fileInfo").textContent = "File could not be loaded.";
+    message("reportStatus", error.message, true);
+  }
+};
+
+el("sendReport").onclick = async () => {
+  if (!report) return;
+  if (!channels.has(report.channel_name)) {
+    message("reportStatus",
+      'Join "' + report.channel_name + '" before sending this report.', true);
+    return;
+  }
+  el("sendReport").disabled = true;
+  message("reportStatus", "Submitting report...");
+  try {
+    await request("report", {report});
+    message("reportStatus", "Submitted for processing. Received reports appear below.");
+  } catch (error) {
+    message("reportStatus", error.message, true);
+  } finally {
+    el("sendReport").disabled = !connected || !report;
+  }
+};
+
+el("summaryForm").onsubmit = async event => {
+  event.preventDefault();
+  summaryContent = "";
+  el("downloadSummary").disabled = true;
+  el("summaryText").hidden = true;
+  message("summaryStatus", "Generating summary...");
+  try {
+    await request("summary", {
+      channel: el("summaryChannel").value.trim(),
+      user: el("summaryUser").value.trim()
+    });
+  } catch (error) { message("summaryStatus", error.message, true); }
+};
+
+el("downloadSummary").onclick = () => {
+  const url = URL.createObjectURL(new Blob([summaryContent], {type:"text/plain;charset=utf-8"}));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "stomp-summary.txt";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+function handle(event) {
+  history.push(JSON.stringify(event));
+  if (history.length > 100) history.shift();
+  el("clientEvents").textContent = history.join("\n");
+
+  if (event.type === "login_success") {
+    connected = true;
+    el("loginPage").hidden = true;
+    el("appPage").hidden = false;
+    el("accountName").textContent = event.user;
+    el("summaryUser").value = event.user;
+    el("password").value = "";
+    el("logout").disabled = false;
+    message("connectionNote", "");
+    showView("reportsView");
+    drawChannels();
+  } else if (event.type === "logout_success") {
+    resetSession("You have signed out.");
+  } else if (["server_error","connection_failed","connection_closed","client_stopped"].includes(event.type)) {
+    resetSession(event.message || "Connection closed. Please sign in again.", true);
+  } else if (event.type === "subscription_receipt") {
+    const text = event.message || "";
+    if (text.startsWith("Joined channel ")) {
+      const name = text.slice("Joined channel ".length);
+      channels.add(name);
+      el("summaryChannel").value = name;
+    } else if (text.startsWith("Exited channel ")) {
+      channels.delete(text.slice("Exited channel ".length));
+    }
+    message("channelStatus", text);
+    drawChannels();
+  } else if (event.type === "report_received") {
+    el("reportsEmpty").hidden = true;
+    const card = document.createElement("article");
+    card.className = "report";
+    const title = document.createElement("h3");
+    title.textContent = event.name;
+    const meta = document.createElement("p");
+    meta.className = "muted small";
+    meta.textContent = event.channel + " · " + event.city + " · " + event.user;
+    const body = document.createElement("p");
+    body.textContent = event.description;
+    card.append(title, meta, body);
+    el("reports").prepend(card);
+    while (el("reports").children.length > 100)
+      el("reports").lastElementChild.remove();
+  } else if (event.type === "summary_ready") {
+    summaryContent = event.content;
+    el("summaryText").textContent = summaryContent;
+    el("summaryText").hidden = false;
+    el("downloadSummary").disabled = false;
+    message("summaryStatus", "Summary ready.");
+  } else if (event.type === "summary_error") {
+    message("summaryStatus", event.message, true);
+  }
+}
+
+async function poll() {
+  try {
+    const response = await fetch("/events", {cache:"no-store"});
+    if (!response.ok) throw new Error("Service unavailable");
+    for (const event of await response.json()) handle(event);
+  } catch (error) {
+    message(connected ? "connectionNote" : "loginMessage",
+      "Cannot reach the local service. Check that the dashboard is running.", true);
+  } finally { setTimeout(poll, 400); }
+}
+
+function renderLogs() {
+  const level = el("logLevel").value;
+  const lines = serverLines.filter(line =>
+    level === "ALL" || line.split(/\s+/)[1] === level);
+  el("serverLogs").textContent = lines.join("\n") || "No matching events.";
+}
+el("logLevel").onchange = renderLogs;
+
+async function pollMonitor() {
+  if (connected && !el("systemView").hidden) {
+    try {
+      const response = await fetch("/server-status", {cache:"no-store"});
+      if (!response.ok) throw new Error("Monitor unavailable");
+      const result = await response.json();
+      if (!result.available) throw new Error("Monitor unavailable");
+      const data = result.status;
+      el("monitorValues").hidden = false;
+      message("monitorStatus", "Local server process is running.");
+      el("metricConnections").textContent = data.connections;
+      el("metricUsers").textContent = data.users;
+      el("metricChannels").textContent = data.channels;
+      el("monitorDetails").textContent =
+        "Mode: " + data.mode.toUpperCase() +
+        " · Port: " + data.port +
+        " · Running for " + Math.floor(data.uptime_seconds / 60) + " min";
+    } catch (error) {
+      el("monitorValues").hidden = true;
+      message("monitorStatus",
+        "Local server monitor is unavailable. Its status cannot be confirmed.", true);
+    }
+  }
+  setTimeout(pollMonitor, 2000);
+}
+pollMonitor();
+
+async function pollLogs() {
+  if (connected && !el("systemView").hidden) {
+    try {
+      const response = await fetch("/server-logs", {cache:"no-store"});
+      if (!response.ok) throw new Error("Server log unavailable.");
+      const data = await response.json();
+      serverLines = data.lines;
+      message("serverLogStatus", data.message);
+      renderLogs();
+    } catch (error) { message("serverLogStatus", error.message, true); }
+  }
+  setTimeout(pollLogs, 1500);
+}
+async function restoreSession() {
+  el("connect").disabled = true;
+  message("loginMessage", "Checking your session...");
+  try {
+    const response = await fetch("/session", {cache:"no-store"});
+    if (!response.ok) throw new Error("Could not restore session.");
+    const snapshot = await response.json();
+    for (const event of snapshot) handle(event);
+    if (!connected) message("loginMessage", "");
+    el("connect").disabled = false;
+    poll();
+    pollLogs();
+  } catch (error) {
+    message("loginMessage", "Cannot reach the local service. Retrying...", true);
+    setTimeout(restoreSession, 1500);
+  }
+}
+
+drawChannels();
+restoreSession();
+</script>
+</body>
+</html>

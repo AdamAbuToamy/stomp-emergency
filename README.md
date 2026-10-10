@@ -193,3 +193,59 @@ Hostname resolution and IPv6 support are not claimed.
 This is an educational portfolio project. It is not an operational emergency
 system, and full STOMP 1.2 compliance is not claimed. The bundled `json.hpp`
 is the third-party nlohmann/json library; its license notice is retained.
+
+## Local web dashboard
+
+A local browser interface backed by a Python bridge, the actual C++ client,
+and the Java STOMP server.
+
+### Build and run
+
+Run these commands from the repository root:
+
+    mvn -f server/pom.xml compile
+    make -C client
+    python3 scripts/run_dashboard.py
+
+Open http://127.0.0.1:8080 in one browser tab.
+
+To run Reactor instead of TPC:
+
+    python3 scripts/run_dashboard.py --mode reactor
+
+Press Ctrl+C in the launcher terminal to stop the application.
+
+### Features
+
+- Separate sign-in screen and signed-in workspace.
+- Join and leave channels with server confirmations.
+- Create reports through a form or import JSON files.
+- Check confirmed subscriptions before submitting reports through the UI.
+- Display received reports.
+- Generate summaries in C++ and download them as text.
+- Restore the browser view after refresh while the bridge remains running.
+- View rotating server logs with level filtering.
+- Display local server connection, signed-in user and active-channel counts.
+
+### Files
+
+- dashboard/app.py: local HTTP service and C++ process bridge.
+- dashboard/index.html: browser interface.
+- scripts/run_dashboard.py: application launcher.
+- ServerLog.java: server event logging.
+- ServerMonitor.java: local monitoring endpoint.
+
+### Scope and limitations
+
+- One local dashboard session and one browser tab are supported.
+- Sign-in controls the STOMP session, not admin access to the local dashboard.
+- Ports: STOMP 7777, dashboard 8080, monitor 7778.
+- Dashboard and monitor bind to loopback; the STOMP listener is unchanged.
+- Monitoring describes the local Java server, even when the client connects elsewhere.
+- Counters are sampled independently and may differ briefly during activity.
+- Reports are not persisted across client restarts.
+- Browser restoration includes up to 100 received reports while the bridge runs.
+- Submission does not prove delivery to every subscriber.
+- Logs are stored under logs/ and excluded from Git.
+- This is an educational portfolio application, not a production emergency system.
+

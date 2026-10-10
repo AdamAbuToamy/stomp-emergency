@@ -19,6 +19,10 @@ public class StompMessagingProtocol implements MessagingProtocol<String> {
     private boolean shouldTerminate = false;
     private HashMap<Integer,HashMap<String, String>> subscriptions = new HashMap<>(); // subscriptionId -> topic
 
+    public static int authenticatedUserCount() {
+        return connectedUsers.size();
+    }
+
     private String handleConnect(StompFrame frame, int connectionId) {
         synchronized (AUTH_LOCK) {
             return authenticateUnderLock(frame, connectionId);
@@ -73,6 +77,7 @@ public class StompMessagingProtocol implements MessagingProtocol<String> {
 
         // Connect user
         connectedUsers.put(connectionId, login);
+        ServerLog.event("INFO", "LOGIN", connectionId, login);
         // Return CONNECTED frame
         return "CONNECTED\n" +
                 "version:1.2\n" +
@@ -104,6 +109,7 @@ public class StompMessagingProtocol implements MessagingProtocol<String> {
         connections.subscribe(connectionId, destination);
         subscriptions.computeIfAbsent(connectionId, key -> new HashMap<>())
                 .put(id, destination);
+        ServerLog.event("INFO", "SUBSCRIBE", connectionId, destination);
 
         String receipt = frame.getHeader("receipt");
         return receipt != null ?
@@ -123,6 +129,7 @@ public class StompMessagingProtocol implements MessagingProtocol<String> {
             if (topic != null) {
                 topic.removeSubscriber(connectionId);
                 connections.unsubscribe(connectionId,topicName);
+                ServerLog.event("INFO", "UNSUBSCRIBE", connectionId, topicName);
             }
         }
 
@@ -144,6 +151,7 @@ public class StompMessagingProtocol implements MessagingProtocol<String> {
                     frame.getHeader("receipt"), connectionId);
         }
 
+        ServerLog.event("INFO", "REPORT_ACCEPTED", connectionId, destination);
         int messageId = topic.getNextMessageId();
         for (var subscriber : topic.getSubscribers().entrySet()) {
             int recipientConnectionId = subscriber.getKey();
@@ -177,6 +185,9 @@ public class StompMessagingProtocol implements MessagingProtocol<String> {
 
     @Override
     public void onDisconnect(int connectionId) {
+        if (!shouldTerminate) {
+            ServerLog.event("INFO", "DISCONNECT", connectionId, "Session cleanup");
+        }
         HashMap<String, String> userSubscriptions =
                 subscriptions.remove(connectionId);
 
@@ -197,6 +208,7 @@ public class StompMessagingProtocol implements MessagingProtocol<String> {
     }
 
     private String createErrorFrame(String message, String receiptId, int connectionId) {
+        ServerLog.event("WARN", "PROTOCOL_ERROR", connectionId, message);
         synchronized (AUTH_LOCK) {
             connectedUsers.remove(connectionId);
         }

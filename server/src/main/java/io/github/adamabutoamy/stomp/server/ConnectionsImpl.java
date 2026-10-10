@@ -10,6 +10,18 @@ public class ConnectionsImpl<T> implements Connections<T> {
     private AtomicInteger connectionCount;
 
     private final ConcurrentHashMap<String, Set<Integer>> channels;
+    public int activeConnectionCount() {
+        return clients.size();
+    }
+
+    public int activeChannelCount() {
+        int count = 0;
+        for (Set<Integer> members : channels.values()) {
+            if (!members.isEmpty()) count++;
+        }
+        return count;
+    }
+
     public int getID(){
         return connectionCount.getAndIncrement();
     }
