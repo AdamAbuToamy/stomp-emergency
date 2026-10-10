@@ -19,6 +19,10 @@ public class StompMessagingProtocol implements MessagingProtocol<String> {
     private boolean shouldTerminate = false;
     private HashMap<Integer,HashMap<String, String>> subscriptions = new HashMap<>(); // subscriptionId -> topic
 
+    public static int authenticatedUserCount() {
+        return connectedUsers.size();
+    }
+
     private String handleConnect(StompFrame frame, int connectionId) {
         synchronized (AUTH_LOCK) {
             return authenticateUnderLock(frame, connectionId);
