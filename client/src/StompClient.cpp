@@ -7,8 +7,12 @@
 #include <ctime>
 #include <iomanip>
 #include "StompProtocol.h"
+#include "json.hpp"
 
-StompClient::StompClient(StompProtocol& protocol) : 
+static std::ostream uiEvents(std::cout.rdbuf());
+
+StompClient::StompClient(StompProtocol& protocol, bool uiMode) :
+    uiMode(uiMode), 
 	ServerConnected(false),
 	connected(false), 
 	shouldTerminate(false), 
@@ -33,17 +37,32 @@ void StompClient::readFromSocket() {
             } catch (const std::exception& error) {
                 std::lock_guard<std::mutex> lock(sessionMutex);
                 resetSession();
-                std::cerr << "Connection error: " << error.what() << std::endl;
+                if (uiMode) {
+                    uiEvents << nlohmann::json{
+                        {"type", "connection_closed"},
+                        {"message", error.what()}
+                    }.dump() << std::endl;
+                } else {
+                    std::cerr << "Connection error: " << error.what() << std::endl;
+                }
             } catch (int) {
                 std::lock_guard<std::mutex> lock(sessionMutex);
                 resetSession();
                 if (!shouldTerminate) {
-                    std::cout << "Connection closed" << std::endl;
+                    if (uiMode) {
+                        uiEvents << nlohmann::json{
+                            {"type", "connection_closed"},
+                            {"message", "Connection closed"}
+                        }.dump() << std::endl;
+                    } else {
+                        std::cout << "Connection closed" << std::endl;
+                    }
                 }
             }
         }
     }
 }
+
 
 void StompClient::readFromKeyboard() {
 	while (!shouldTerminate) {
@@ -66,13 +85,28 @@ void StompClient::handleFrame(const StompFrame& frame) {
     if (frameType == "CONNECTED") {
         connected = true;
         protocol.setConnected(true);
-        std::cout << "Login successful" << std::endl;
+        if (uiMode) {
+            nlohmann::json event = {
+                {"type", "login_success"},
+                {"user", currentUser}
+            };
+            uiEvents << event.dump() << std::endl;
+        } 
+        else {
+            std::cout << "Login successful" << std::endl;
+        }
     } else if (frameType == "RECEIPT") {
         const std::string receiptId = frame.getHeader("receipt-id");
         const int receipt = std::stoi(receiptId);
         if (receipt == -1) {
             resetSession();
-            std::cout << "Logout successful" << std::endl;
+            if (uiMode) {
+                uiEvents << nlohmann::json{
+                    {"type", "logout_success"}
+                }.dump() << std::endl;
+            } else {
+                std::cout << "Logout successful" << std::endl;
+            }
         } else {
             std::string confirmation;
             {
@@ -84,7 +118,15 @@ void StompClient::handleFrame(const StompFrame& frame) {
                 }
             }
             if (!confirmation.empty()) {
-                std::cout << confirmation << std::endl;
+                if (uiMode) {
+                    uiEvents << nlohmann::json{
+                        {"type", "subscription_receipt"},
+                        {"receipt_id", receiptId},
+                        {"message", confirmation}
+                    }.dump() << std::endl;
+                } else {
+                    std::cout << confirmation << std::endl;
+                }
             }
         }
     } else if (frameType == "MESSAGE") {
@@ -96,15 +138,37 @@ void StompClient::handleFrame(const StompFrame& frame) {
         Event event(frame.getBody());
         std::lock_guard<std::mutex> lock(eventsMutex);
         addEvent(channel, event.getEventOwnerUser(), event);
+        if (uiMode) {
+            uiEvents << nlohmann::json{
+                {"type", "report_received"},
+                {"channel", channel},
+                {"user", event.getEventOwnerUser()},
+                {"city", event.get_city()},
+                {"name", event.get_name()},
+                {"description", event.get_description()},
+                {"timestamp", event.get_date_time()}
+            }.dump() << std::endl;
+        }
     } else if (frameType == "ERROR") {
-        std::cerr << "Server error: " << frame.getHeader("message") << std::endl;
+    if (uiMode) {
+        uiEvents << nlohmann::json{
+            {"type", "server_error"},
+            {"message", frame.getHeader("message")},
+            {"details", frame.getBody()}
+        }.dump() << std::endl;
+    } else {
+        std::cerr << "Server error: "
+                  << frame.getHeader("message") << std::endl;
+
         if (!frame.getBody().empty()) {
             std::cerr << frame.getBody() << std::endl;
         }
-        resetSession();
     }
-}
 
+    resetSession();
+
+}
+}
 void StompClient::handleLogin(const std::vector<std::string>& tokens) {
     if (ServerConnected) {
         std::cout << "Already connected or waiting for login. Log out first."
@@ -146,10 +210,15 @@ void StompClient::handleLogin(const std::vector<std::string>& tokens) {
     }
 
     if (protocol.connect(host, static_cast<unsigned short>(port),
-                         tokens[2], tokens[3])) {
-        currentUser = tokens[2];
-        ServerConnected = true;
-    }
+                    tokens[2], tokens[3])) {
+                        currentUser = tokens[2];
+                        ServerConnected = true;
+                    } else if (uiMode) {
+                        uiEvents << nlohmann::json{
+                            {"type", "connection_failed"},
+                            {"message", "Could not connect to the STOMP server"}
+                        }.dump() << std::endl;
+                    }
 }
 
 void StompClient::handleJoin(const std::vector<std::string>& tokens) {
@@ -277,7 +346,15 @@ void StompClient::handleSummary(const std::vector<std::string>& tokens) {
 	// Open file in truncation mode to clear any existing content
 	std::ofstream outFile(filename, std::ios::trunc);
 	if (!outFile.is_open()) {
-		std::cout << "Error: Could not open file " << filename << std::endl;
+		if (uiMode) {
+            uiEvents << nlohmann::json{
+                {"type", "summary_error"},
+                {"message", "Could not create the summary file"}
+            }.dump() << std::endl;
+        } else {
+            std::cout << "Error: Could not open file "
+                      << filename << std::endl;
+        }
 		return;
 	}
 
@@ -304,6 +381,35 @@ void StompClient::handleSummary(const std::vector<std::string>& tokens) {
 	}
 
 	outFile.close();
+
+    if (uiMode) {
+        if (!outFile) {
+            uiEvents << nlohmann::json{
+                {"type", "summary_error"},
+                {"message", "Could not finish writing the summary"}
+            }.dump() << std::endl;
+            return;
+        }
+
+        std::ifstream savedSummary(filename);
+        if (!savedSummary.is_open()) {
+            uiEvents << nlohmann::json{
+                {"type", "summary_error"},
+                {"message", "Could not read the generated summary"}
+            }.dump() << std::endl;
+            return;
+        }
+
+        std::ostringstream content;
+        content << savedSummary.rdbuf();
+
+        uiEvents << nlohmann::json{
+            {"type", "summary_ready"},
+            {"channel", channel},
+            {"user", user},
+            {"content", content.str()}
+        }.dump() << std::endl;
+    }
 }
 
 void StompClient::handleLogout() {
@@ -424,7 +530,22 @@ int main(int argc, char *argv[]) {
 	
 	ConnectionHandler connectionHandler(host, port);
 	StompProtocol protocol(connectionHandler);
-	StompClient client(protocol);
+	bool uiMode = false;
+
+    if (argc == 2 && std::string(argv[1]) == "--ui") {
+        uiMode = true;
+    } 
+    else if (argc != 1) {
+        std::cerr << "Usage: " << argv[0] << " [--ui]" << std::endl;
+        return 1;
+    }
+
+if (uiMode) {
+    // Ordinary console messages become diagnostics in UI mode.
+    std::cout.rdbuf(std::cerr.rdbuf());
+}
+
+StompClient client(protocol, uiMode);
 	
 	std::thread keyboardThread(&StompClient::readFromKeyboard, &client);
 	std::thread socketThread(&StompClient::readFromSocket, &client);

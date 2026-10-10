@@ -10,7 +10,9 @@
 #include <atomic>
 
 class StompClient {
-private:
+private:  
+
+    bool uiMode;
     std::atomic<bool> ServerConnected;
     std::atomic<bool> connected;
     std::atomic<bool> shouldTerminate;
@@ -21,6 +23,8 @@ private:
     std::mutex sessionMutex;
     std::mutex eventsMutex;
     std::mutex receiptsMutex;
+
+    
     
     // Map of channel -> user -> vector of events
     std::map<std::string, std::map<std::string, std::vector<Event>>> channelEvents;
@@ -45,7 +49,7 @@ private:
     void addEvent(const std::string& channel, const std::string& user, const Event& event);
 
 public:
-    StompClient(StompProtocol& protocol);
+    StompClient(StompProtocol& protocol, bool uiMode = false);
     ~StompClient();
     void readFromSocket();
     void readFromKeyboard();
