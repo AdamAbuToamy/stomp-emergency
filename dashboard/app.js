@@ -147,6 +147,10 @@ function resetSession(text, error = false) {
   channels.clear();
   report = null;
   summaryContent = "";
+  el("incidentDrawer").close();
+  el("notificationDialog").close();
+  el("notificationList").replaceChildren();
+  el("notificationCount").textContent = "0";
   el("appPage").hidden = true;
   el("loginPage").hidden = false;
   el("connect").disabled = false;
@@ -239,6 +243,8 @@ el("composeForm").onsubmit = async event => {
     channel_name: channel,
     events: [{
       event_name: title,
+      priority: el("composePriority").value,
+      location: el("composeLocation").value.trim(),
       city,
       date_time: Math.floor(Date.now() / 1000),
       description,
@@ -346,7 +352,7 @@ function handle(event) {
     el("password").value = "";
     el("logout").disabled = false;
     message("connectionNote", "");
-    showView("reportsView");
+    showView("registryView");
     drawChannels();
   } else if (event.type === "logout_success") {
     resetSession("You have signed out.");
@@ -513,9 +519,10 @@ async function loadIncidents(more = false) {
   el("incidentMore").disabled = true;
   if (!more) {
     const params = new URLSearchParams();
-    for (const [key,id] of [["q","incidentQuery"],["channel","incidentChannel"],["status","incidentStatus"],["from","incidentFrom"],["to","incidentTo"]]) {
+    for (const [key,id] of [["q","incidentQuery"],["channel","incidentChannel"],["status","incidentStatus"],["priority","incidentPriority"],["from","incidentFrom"],["to","incidentTo"]]) {
       if (el(id).value) params.set(key,el(id).value);
     }
+    if (el("incidentMine").checked) params.set("mine", "1");
     incidentQuery = params.toString();
   }
   try {
@@ -523,6 +530,7 @@ async function loadIncidents(more = false) {
     if (sessionGeneration !== generation || queryGeneration !== listGeneration) return;
     if (!more) el("incidentList").replaceChildren();
     for (const item of result.items) renderIncident(item);
+    refreshOverview();
     nextIncident = result.next;
     el("incidentMore").hidden = !nextIncident;
     message("incidentNotice", el("incidentList").children.length ? "Saved reports · newest first" : "No incidents match these filters.");
@@ -534,59 +542,93 @@ el("incidentFilters").onsubmit = event => { event.preventDefault(); loadIncident
 el("incidentMore").onclick = () => loadIncidents(true);
 
 function renderIncident(item) {
-  const card = node("article",undefined,"report incident-card");
-  const heading = node("div",undefined,"incident-heading");
-  heading.append(node("h3", "#"+item.id+" · "+item.title),node("span",statusLabels[item.status],"badge status-"+item.status));
-  card.append(heading,node("p",item.channel+" · "+item.city+" · reported by "+item.author,"muted small"));
-  card.append(node("p",item.description));
-  card.append(node("p","Created "+new Date(item.created*1000).toLocaleString()+" · Assigned: "+(item.assignee || "Unassigned"),"muted small"));
-  const delivery = {pending:"Transmission pending",submitted:"Submitted to STOMP; receipt by every subscriber is not confirmed",unknown:"Transmission outcome unknown; no automatic resend"};
-  card.append(node("p",delivery[item.delivery],"muted small"));
-  const details=node("details"); details.append(node("summary","History & actions"));
-  const content=node("div"); details.append(content); card.append(details);
-  details.addEventListener("toggle",async () => {
-    if (!details.open) return;
-    const current=generation;
-    try {
-      const incident=await getJSON("/incidents/"+item.id);
-      if (current!==generation) return;
-      content.replaceChildren();
-      const audit=node("ol",undefined,"audit-list");
-      for (const entry of incident.audit) {
-        let change=entry.details;
-        if (entry.action==="updated") {
-          const detail=JSON.parse(entry.details);
-          change=statusLabels[detail.status.from]+" → "+statusLabels[detail.status.to]+"; assignee: "+(detail.assignee.from || "unassigned")+" → "+(detail.assignee.to || "unassigned");
-        }
-        audit.append(node("li",new Date(entry.at*1000).toLocaleString()+" · "+entry.actor+" · "+change));
-      }
-      content.append(audit);
-      if (!["admin","responder"].includes(currentRole)) return;
-      const form=node("form",undefined,"incident-actions");
-      const stateLabel=node("label","Status"); const select=node("select");
-      for (const [value,label] of Object.entries(statusLabels)) {
-        const option=node("option",label); option.value=value; select.append(option);
-      }
-      select.value=incident.status; stateLabel.append(select);
-      const ownerLabel=node("label","Assigned responder"); const owner=node("input");
-      owner.value=incident.assignee || (currentRole === "responder" ? currentUser : "");
-      owner.placeholder="Responder username"; owner.maxLength=32; owner.readOnly=currentRole!=="admin"; ownerLabel.append(owner);
-      const submit=node("button","Save changes","primary");
-      const notice=node("p", "", "notice"); notice.setAttribute("role","status");
-      form.append(stateLabel,ownerLabel,submit,notice);
-      form.onsubmit=async event => {
-        event.preventDefault(); submit.disabled=true;
-        try {
-          await authRequest("/incidents/update",{id:incident.id,version:incident.version,status:select.value,assignee:owner.value.trim()});
-          if (current===generation) await loadIncidents();
-        } catch (error) { notice.textContent=error.message; notice.classList.add("error"); }
-        finally { submit.disabled=false; }
-      };
-      content.append(form);
-    } catch (error) { content.replaceChildren(node("p",error.message,"error")); }
-  });
-  el("incidentList").append(card);
+  const row=node("tr");
+  const title=node("td"); const open=node("button",item.title);
+  open.onclick=()=>openIncident(item.id);
+  title.append(open,node("small","#"+item.id+" · "+item.channel)); row.append(title);
+  const priority=node("td"); priority.append(node("span",item.priority,"badge priority-"+item.priority)); row.append(priority);
+  const status=node("td"); status.append(node("span",statusLabels[item.status],"badge status-"+item.status)); row.append(status);
+  row.append(node("td",item.location || item.city),node("td",item.assignee || "Unassigned"),node("td",new Date(item.created*1000).toLocaleDateString()));
+  el("incidentList").append(row);
 }
+let drawerRequest = 0;
+async function openIncident(id) {
+  const request = ++drawerRequest;
+  const current=generation;
+  el("drawerTitle").textContent="Loading incident…";
+  el("drawerContent").replaceChildren();
+  if (!el("incidentDrawer").open) el("incidentDrawer").showModal();
+  try {
+    const incident=await getJSON("/incidents/"+id);
+    if(current!==generation || request!==drawerRequest) return;
+    el("drawerTitle").textContent="#"+incident.id+" · "+incident.title;
+    const content=el("drawerContent");
+    content.append(node("span",statusLabels[incident.status],"badge status-"+incident.status),document.createTextNode(" "),node("span",incident.priority,"badge priority-"+incident.priority));
+    const meta=node("div",undefined,"detail-meta");
+    for (const [label,value] of [["CHANNEL",incident.channel],["LOCATION",incident.location || incident.city],["REPORTED BY",incident.author],["ASSIGNED TO",incident.assignee || "Unassigned"]]) {
+      const cell=node("div");cell.append(node("small",label),node("span",value));meta.append(cell);
+    }
+    content.append(meta,node("p",incident.description,"drawer-description"));
+    content.append(node("p", "Created "+new Date(incident.created*1000).toLocaleString(),"muted small"));
+    const delivery={submitted:"Message submitted to STOMP. Individual delivery is not guaranteed.",pending:"Transmission pending.",unknown:"Transmission outcome unknown. This incident is safely stored."};
+    content.append(node("p",delivery[incident.delivery],"muted small"),node("h3","Activity timeline"));
+    const audit=node("ol",undefined,"audit-list");
+    for(const entry of incident.audit){
+      let change="Created this incident";
+      if(entry.action==="updated"){
+        const d=JSON.parse(entry.details);
+        change=statusLabels[d.status.from]+" → "+statusLabels[d.status.to]+" · "+(d.assignee.to || "Unassigned");
+      }
+      audit.append(node("li",entry.actor+" · "+change+" · "+new Date(entry.at*1000).toLocaleString()));
+    }
+    content.append(audit);
+    if(!["admin","responder"].includes(currentRole)) return;
+    const form=node("form",undefined,"incident-actions");
+    const stateLabel=node("label","Status");const select=node("select");
+    for(const [value,label] of Object.entries(statusLabels)){const option=node("option",label);option.value=value;select.append(option);}
+    select.value=incident.status;stateLabel.append(select);
+    const ownerLabel=node("label","Assigned responder");const owner=node("input");
+    owner.value=incident.assignee || (currentRole==="responder" ? currentUser : "");
+    owner.placeholder="Responder username";owner.maxLength=32;owner.readOnly=currentRole!=="admin";ownerLabel.append(owner);
+    const submit=node("button","Save changes","primary");const notice=node("p","","notice");notice.setAttribute("role","status");form.append(stateLabel,ownerLabel,submit,notice);
+    form.onsubmit=async event=>{event.preventDefault();submit.disabled=true;
+      try{await authRequest("/incidents/update",{id:incident.id,version:incident.version,status:select.value,assignee:owner.value.trim()});
+        if(current===generation){await openIncident(id);await loadIncidents();}
+      }catch(error){notice.textContent=error.message;notice.classList.add("error");}finally{submit.disabled=false;}
+    };content.append(form);
+  }catch(error){if(current===generation) el("drawerContent").replaceChildren(node("p",error.message,"error"));}
+}
+el("closeDrawer").onclick=()=>{drawerRequest++;el("incidentDrawer").close();};
+el("quickReport").onclick=()=>showView("reportsView");
+async function refreshOverview(){
+  const current=generation;
+  try{const data=await getJSON("/overview");if(current!==generation)return;
+    for(const [id,key] of [["overviewOpen","open"],["overviewUrgent","urgent"],["overviewMine","mine"],["overviewAging","aging"]])el(id).textContent=data[key];
+  }catch(error){if(current===generation)message("incidentNotice",error.message,true);}
+}
+let latestNotifications=[];
+async function refreshNotifications(){
+  const current=generation;
+  try{if(!connected)return;const data=await getJSON("/notifications");if(current!==generation)return;
+    latestNotifications=data.items;el("notificationCount").textContent=data.items.filter(n=>!n.seen).length;
+  }catch(error){}finally{setTimeout(refreshNotifications,5000);}
+}
+el("notificationsButton").onclick=async()=>{
+  const current=generation;el("notificationList").replaceChildren();
+  el("notificationDialog").showModal();
+  el("notificationsButton").setAttribute("aria-expanded", "true");
+  try{const data=await getJSON("/notifications");if(current!==generation)return;
+    for(const n of data.items){const button=node("button","#"+n.incident_id+" · "+n.title,"notification-item"+(n.seen?"":" unread"));
+      button.append(node("small",n.actor+" assigned this to you · "+new Date(n.created*1000).toLocaleString()));
+      button.onclick=()=>{el("notificationDialog").close();openIncident(n.incident_id);};el("notificationList").append(button);
+    }
+    if(!data.items.length)el("notificationList").append(node("p","No assignments yet. You’re all caught up.","muted"));
+    await authRequest("/notifications/read",{ids:data.items.map(n=>n.id)});
+    if(current===generation)el("notificationCount").textContent="0";
+  }catch(error){if(current===generation)el("notificationList").append(node("p",error.message,"error"));}
+};
+el("closeInbox").onclick=()=>el("notificationDialog").close();
+refreshNotifications();
 
 function options(id, values) {
   const selected=el(id).value;
@@ -658,3 +700,5 @@ el("passwordForm").onsubmit = async event => {
   } catch (error) { message("passwordNotice", error.message, true); }
   finally { el("savePassword").disabled = false; }
 };
+
+el("notificationDialog").addEventListener("close",()=>el("notificationsButton").setAttribute("aria-expanded","false"));

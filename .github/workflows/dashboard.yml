@@ -1,0 +1,33 @@
+name: Dashboard integration
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        mode: [tpc, reactor]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Build actual Java and C++ components
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libboost-dev
+          mvn -f server/pom.xml compile
+          make -C client
+      - name: Check source hygiene and JavaScript syntax
+        run: |
+          python3 scripts/check_source_hygiene.py
+          node --check dashboard/app.js
+          node --check dashboard/demo.js
+      - name: Run authenticated integration and storage tests
+        env:
+          DASHBOARD_TEST_MODE: ${{ matrix.mode }}
+        run: python3 -m unittest discover -s tests_dashboard -v
