@@ -5,13 +5,16 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.Queue;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ArrayBlockingQueue;
+import io.github.adamabutoamy.stomp.protocol.ServerLog;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import io.github.adamabutoamy.stomp.api.MessageEncoderDecoder;
 import io.github.adamabutoamy.stomp.api.MessagingProtocol;
 
 public class NonBlockingConnectionHandler<T> implements ConnectionHandler<T> {
     private static final int BUFFER_ALLOCATION_SIZE = 1 << 13;
-    private static final ConcurrentLinkedQueue<ByteBuffer> BUFFER_POOL = new ConcurrentLinkedQueue<>();
+    private static final ArrayBlockingQueue<ByteBuffer> BUFFER_POOL = new ArrayBlockingQueue<>(64);
     private final MessagingProtocol<T> protocol;
     private final MessageEncoderDecoder<T> encdec;
     private final Queue<ByteBuffer> writeQueue = new ConcurrentLinkedQueue<>();
@@ -19,6 +22,9 @@ public class NonBlockingConnectionHandler<T> implements ConnectionHandler<T> {
     private final SocketChannel chan;
     private final Reactor reactor;
     private final int id;
+    private static final int MAX_PENDING_INPUT_BYTES = 131072;
+    private final AtomicInteger pendingInputBytes = new AtomicInteger();
+    private int queuedBytes;
     private volatile boolean closed;
     private volatile boolean closing;
     private volatile boolean readEnded;
@@ -56,6 +62,8 @@ public class NonBlockingConnectionHandler<T> implements ConnectionHandler<T> {
             return null;
         }
         buf.flip();
+        pendingInputBytes.addAndGet(count);
+        refreshInterest();
         return () -> {
             try {
                 // Cleanup cannot run halfway through a protocol operation.
@@ -70,7 +78,10 @@ public class NonBlockingConnectionHandler<T> implements ConnectionHandler<T> {
                             if (closed) return;
                             if (terminate) closing = true;
                             if (response != null) {
-                                writeQueue.add(ByteBuffer.wrap(encdec.encode(response)));
+                                if (!enqueue(response)) {
+                                    reactor.executeOnActor(this, this::close);
+                                    return;
+                                }
                             }
                         }
                         // Includes a final ERROR/RECEIPT: close only after writing it.
@@ -79,10 +90,12 @@ public class NonBlockingConnectionHandler<T> implements ConnectionHandler<T> {
                     }
                 }
             } catch (RuntimeException ex) {
+                ServerLog.event("WARN", "INPUT_REJECTED", id, "Invalid or oversized input");
                 close();
-                throw ex;
             } finally {
                 releaseBuffer(buf);
+                pendingInputBytes.addAndGet(-count);
+                refreshInterest();
             }
         };
     }
@@ -104,19 +117,19 @@ public class NonBlockingConnectionHandler<T> implements ConnectionHandler<T> {
             closed = true;
             closing = true;
             writeQueue.clear();
+            queuedBytes = 0;
         }
         try {
             chan.close();
         } catch (IOException ex) {
             ex.printStackTrace();
         } finally {
-            try {
-                synchronized (protocol) {
-                    protocol.onDisconnect(id);
-                }
-            } finally {
-                ConnectionsImpl.getInstance().disconnect(id);
-            }
+            // Cleanup runs on this connection's actor. Never acquire a recipient's
+            // protocol monitor from the sender actor or the selector thread.
+            reactor.executeOnActor(this, () -> {
+                try { synchronized (protocol) { protocol.onDisconnect(id); } }
+                finally { ConnectionsImpl.getInstance().disconnect(id); }
+            });
         }
     }
 
@@ -129,9 +142,15 @@ public class NonBlockingConnectionHandler<T> implements ConnectionHandler<T> {
         try {
             synchronized (writeLock) {
                 if (closed) return;
-                while (!writeQueue.isEmpty()) {
+                int budget = 262144;
+                while (!writeQueue.isEmpty() && budget > 0) {
                     ByteBuffer top = writeQueue.peek();
-                    chan.write(top);
+                    int limit = top.limit();
+                    top.limit(top.position() + Math.min(top.remaining(), budget));
+                    int written;
+                    try { written = chan.write(top); } finally { top.limit(limit); }
+                    queuedBytes -= written;
+                    budget -= written;
                     if (top.hasRemaining()) break;
                     writeQueue.remove();
                 }
@@ -150,7 +169,8 @@ public class NonBlockingConnectionHandler<T> implements ConnectionHandler<T> {
     int desiredInterestOps() {
         synchronized (writeLock) {
             if (closed) return 0;
-            int ops = (closing || readEnded) ? 0 : SelectionKey.OP_READ;
+            int ops = (closing || readEnded || pendingInputBytes.get() >= MAX_PENDING_INPUT_BYTES)
+                    ? 0 : SelectionKey.OP_READ;
             if (!writeQueue.isEmpty()) ops |= SelectionKey.OP_WRITE;
             return ops;
         }
@@ -168,16 +188,31 @@ public class NonBlockingConnectionHandler<T> implements ConnectionHandler<T> {
     }
 
     private static void releaseBuffer(ByteBuffer buffer) {
-        BUFFER_POOL.add(buffer);
+        BUFFER_POOL.offer(buffer);
+    }
+
+    // Called only with writeLock held. Account for bytes remaining, not frame count.
+    private boolean enqueue(T message) {
+        byte[] encoded = encdec.encode(message);
+        if ((long) queuedBytes + encoded.length > TransportLimits.MAX_QUEUED_BYTES) {
+            closing = true;
+            ServerLog.event("WARN", "SLOW_CONSUMER", id, "Output byte limit exceeded");
+            return false;
+        }
+        writeQueue.add(ByteBuffer.wrap(encoded));
+        queuedBytes += encoded.length;
+        return true;
     }
 
     @Override
     public void send(T message) {
         if (message == null) return;
+        boolean accepted;
         synchronized (writeLock) {
             if (closed || closing) return;
-            writeQueue.add(ByteBuffer.wrap(encdec.encode(message)));
+            accepted = enqueue(message);
         }
-        refreshInterest();
+        if (!accepted) reactor.executeOnActor(this, this::close);
+        else refreshInterest();
     }
 }

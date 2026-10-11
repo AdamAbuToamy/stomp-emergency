@@ -43,6 +43,18 @@ class Incidents:
                 CREATE INDEX IF NOT EXISTS incidents_channel_created ON incidents(channel,created DESC);
                 CREATE INDEX IF NOT EXISTS incident_audit_report ON incident_audit(incident_id,id);
             ''')
+            columns = {row[1] for row in db.execute("PRAGMA table_info(incidents)")}
+            if 'priority' not in columns:
+                db.execute("ALTER TABLE incidents ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'")
+            if 'location' not in columns:
+                db.execute("ALTER TABLE incidents ADD COLUMN location TEXT NOT NULL DEFAULT ''")
+            db.executescript('''
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id INTEGER PRIMARY KEY, username TEXT NOT NULL REFERENCES users(username),
+                    incident_id INTEGER NOT NULL REFERENCES incidents(id), actor TEXT NOT NULL,
+                    created REAL NOT NULL, seen INTEGER NOT NULL DEFAULT 0);
+                CREATE INDEX IF NOT EXISTS notifications_user ON notifications(username,id);
+            ''')
             # A crash can leave transmission outcome unknown. Never resend automatically.
             db.execute("UPDATE report_batches SET delivery='unknown' WHERE delivery='pending'")
 
@@ -85,6 +97,8 @@ class Incidents:
                     event_time,active,arrived,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
                     (batch,report['channel_name'],session['username'],event['event_name'],event['city'],
                      event['description'],event['date_time'],info['active'],info['forces_arrival_at_scene'],now,now)).lastrowid
+                db.execute('UPDATE incidents SET priority=?,location=? WHERE id=?',
+                           (event.get('priority','normal'), event.get('location',''), ident))
                 ids.append(ident)
                 db.execute('INSERT INTO incident_audit(incident_id,actor,action,details,at) VALUES(?,?,?,?,?)',
                            (ident,session['username'],'created','new',now))
@@ -98,7 +112,9 @@ class Incidents:
         # Filter authorization in SQL before LIMIT to avoid leaking restricted content/counts.
         where=['(? = \'admin\' OR NOT EXISTS (SELECT 1 FROM channel_policy p WHERE p.name=i.channel AND p.restricted=1) OR EXISTS (SELECT 1 FROM channel_members m WHERE m.channel=i.channel AND m.username=?))']
         args=[session['role'],session['username']]
-        for field in ('channel','status'):
+        if query.get('mine') == '1':
+            where.append('i.assignee=?'); args.append(session['username'])
+        for field in ('channel','status','priority'):
             if query.get(field):
                 where.append('i.'+field+'=?'); args.append(query[field])
         if query.get('q'):
@@ -156,6 +172,9 @@ class Incidents:
                 return
             now=time.time()
             db.execute('UPDATE incidents SET status=?,assignee=?,version=version+1,updated=? WHERE id=?',(state,assignee,now,ident))
+            if assignee and assignee != row['assignee']:
+                db.execute('INSERT INTO notifications(username,incident_id,actor,created) VALUES(?,?,?,?)',
+                           (assignee,ident,session['username'],now))
             detail=json.dumps({'status':{'from':row['status'],'to':state},'assignee':{'from':row['assignee'],'to':assignee}})
             db.execute('INSERT INTO incident_audit(incident_id,actor,action,details,at) VALUES(?,?,?,?,?)',
                        (ident,session['username'],'updated',detail,now))
@@ -202,3 +221,31 @@ class Incidents:
                 raise ValueError('Unknown administration action.')
             db.execute('INSERT INTO access_audit(actor,action,details,at) VALUES(?,?,?,?)',
                        (session['username'],action,json.dumps(data),time.time()))
+
+    def overview(self, session):
+        with self.store.connect() as db:
+            rows = db.execute("""SELECT i.status, i.priority, i.assignee, i.created FROM incidents i
+                WHERE (?='admin' OR NOT EXISTS (SELECT 1 FROM channel_policy p WHERE p.name=i.channel AND p.restricted=1)
+                OR EXISTS (SELECT 1 FROM channel_members m WHERE m.channel=i.channel AND m.username=?))""",
+                (session['role'],session['username'])).fetchall()
+        opened = [r for r in rows if r['status'] != 'closed']
+        return {'open':len(opened), 'urgent':sum(r['priority']=='urgent' for r in opened),
+                'mine':sum(r['assignee']==session['username'] for r in opened),
+                'aging':sum(r['created'] < time.time()-86400 for r in opened),
+                'closed':sum(r['status']=='closed' for r in rows)}
+
+    def notifications(self, session):
+        with self.store.connect() as db:
+            return [dict(r) for r in db.execute("""SELECT n.id,n.incident_id,n.actor,n.created,n.seen,i.title
+                FROM notifications n JOIN incidents i ON i.id=n.incident_id
+                WHERE n.username=? AND (?='admin' OR NOT EXISTS
+                (SELECT 1 FROM channel_policy p WHERE p.name=i.channel AND p.restricted=1) OR EXISTS
+                (SELECT 1 FROM channel_members m WHERE m.channel=i.channel AND m.username=?))
+                ORDER BY n.id DESC LIMIT 20""", (session['username'],session['role'],session['username']))]
+
+    def read_notifications(self, session, ids):
+        if not isinstance(ids,list) or len(ids)>20 or any(type(i) is not int for i in ids):
+            raise ValueError('Invalid notification IDs.')
+        with self.store.connect() as db:
+            db.executemany('UPDATE notifications SET seen=1 WHERE id=? AND username=?',
+                           [(i,session['username']) for i in ids])

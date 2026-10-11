@@ -3,6 +3,7 @@
 import argparse
 import datetime
 import shutil
+import stat
 import sqlite3
 import tempfile
 import os
@@ -48,7 +49,10 @@ with zipfile.ZipFile(backup, 'x', zipfile.ZIP_DEFLATED) as archive:
 for rel in files:
     dest = target / rel
     dest.parent.mkdir(parents=True, exist_ok=True)
+    previous_mode = stat.S_IMODE(dest.stat().st_mode) if dest.exists() else None
     shutil.copy2(source / rel, dest)
+    if previous_mode is not None:
+        dest.chmod(previous_mode)
 print('Updated:', target)
 print('Backup of replaced files:', backup)
 print('Account data and Git history were preserved. Rebuild before running.')

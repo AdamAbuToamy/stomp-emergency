@@ -238,3 +238,33 @@ class AccountsIntegration(unittest.TestCase):
         self.stop(); self.start()
         self.assertEqual(browser.request('/auth/login',{'username':'olivia','password':'NewPass8!'})[0],200)
         self.assertEqual(browser.request('/auth/logout',{})[0],200)
+
+    def test_12_priorities_overview_and_private_assignment_notifications(self):
+        admin=self.account('peter'); worker=self.account('quinn')
+        subprocess.run([sys.executable,'scripts/manage_users.py','promote','peter'],cwd=ROOT,env=self.env,check=True,stdout=subprocess.DEVNULL)
+        self.assertEqual(admin.request('/access',{'action':'role','username':'quinn','role':'responder'})[0],200)
+        self.assertEqual(worker.request('/auth/login',{'username':'quinn','password':PASSWORD})[0],200)
+        self.assertEqual(admin.request('/command',{'action':'join','channel':'operations'})[0],200)
+        report=json.loads((ROOT/'examples/police-demo.json').read_text()); report['channel_name']='operations'
+        report['events'][0].update(priority='urgent',location='Building C · Floor 2')
+        ident=admin.request('/command',{'action':'report','report':report})[1]['incident_ids'][0]
+        detail=admin.request('/incidents/'+str(ident))[1]
+        self.assertEqual(detail['priority'],'urgent'); self.assertEqual(detail['location'],'Building C · Floor 2')
+        self.assertEqual(admin.request('/incidents/update',{'id':ident,'version':1,'status':'in_progress','assignee':'quinn'})[0],200)
+        self.assertEqual(worker.request('/overview')[1]['mine'],1)
+        self.assertEqual(worker.request('/incidents?mine=1&priority=urgent')[1]['items'][0]['id'],ident)
+        self.assertEqual(worker.request('/incidents?mine=1&priority=low')[1]['items'],[])
+        notice=worker.request('/notifications')[1]['items'][0]
+        self.assertEqual(notice['incident_id'],ident); self.assertEqual(notice['seen'],0)
+        admin.request('/notifications/read',{'ids':[notice['id']]})
+        self.assertEqual(worker.request('/notifications')[1]['items'][0]['seen'],0)
+        worker.request('/notifications/read',{'ids':[notice['id']]})
+        self.assertEqual(worker.request('/notifications')[1]['items'][0]['seen'],1)
+        report['events'][0]['priority']='invalid'
+        self.assertEqual(admin.request('/command',{'action':'report','report':report})[0],400)
+        self.assertEqual(admin.request('/access',{'action':'channel','channel':'operations','restricted':True})[0],200)
+        worker.request('/auth/login',{'username':'quinn','password':PASSWORD})
+        self.assertEqual(worker.request('/notifications')[1]['items'],[])
+        self.assertEqual(worker.request('/overview')[1]['mine'],0)
+        self.assertEqual(Browser().request('/overview')[0],401)
+        self.assertEqual(Browser().request('/notifications')[0],401)

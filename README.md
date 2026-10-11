@@ -320,3 +320,45 @@ HTTP bridge, database performance or a production capacity guarantee.
 ### Password and role display fix
 
 My account now supports changing a password with current-password verification, confirmation, an 8–128 character limit, and revocation of all existing sessions. Roles are shown beside the signed-in username. The role editor loads the actual selected role and disables self-editing. Administrator protections remain enforced on the server.
+
+## Relay operations interface
+
+This upgrade adds a sidebar workspace, incident metrics, a searchable table and an
+accessible native dialog for incident details. Priority and location are stored
+with each new incident; existing incidents migrate to normal priority and an empty
+location. The inbox provides persistent assignment notifications, scoped to the
+recipient and current channel access. The latest 20 are shown.
+
+Open `/demo` for an anonymous interactive preview with fictional records only.
+It does not create a shared demo account or expose real incident data.
+The live workspace opens the incident register after sign-in. Create reports from
+New report & channels; role/channel controls stay in Administration.
+
+See docs/ARCHITECTURE.md for the design, deployment boundary and a 90-second
+presentation outline. `.github/workflows/dashboard.yml` builds both languages and
+runs authenticated tests in TPC and Reactor on pushes and pull requests. Its remote
+execution is not claimed until GitHub runs it after this update is pushed.
+
+Local validation: 16 tests passed on TPC (12 integration + 4 storage), and the new
+priority/notification/access scenario passed separately on Reactor. Static HTML ID
+checks and JavaScript syntax checks passed. Browser rendering was not verified in
+this environment; test desktop/mobile appearance before publicly sharing the app.
+The source-hygiene gate is limited and complements GitHub secret scanning.
+
+## Transport hardening and fault injection
+
+See docs/TRANSPORT_RELIABILITY.md for the reproduced failure, limits, design
+trade-offs and remaining risks. The upgrade bounds incoming frames and Reactor
+output queues, pauses Reactor input under backlog, adds a selector write budget,
+and closes TPC sockets whose writes exceed a deadline. Cleanup is scheduled on the
+recipient actor to avoid cross-protocol monitor acquisition.
+
+    mvn -f server/pom.xml compile
+    python3 scripts/test_resilience.py
+
+Local verification passed 37 original + 16 authenticated/storage + 3 fault tests
+in each of TPC and Reactor (112 executions). Benchmarks now sample Java RSS and CPU
+in addition to message latency. Resource metrics include connection setup/warmup;
+message-latency metrics exclude them. See the recorded methodology and raw results.
+Previously recorded results are retained separately and are not a controlled causal
+before/after comparison. This update changes Java source: rebuild before running.

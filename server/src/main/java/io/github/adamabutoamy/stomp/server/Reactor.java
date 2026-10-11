@@ -105,10 +105,15 @@ public class Reactor<T> implements Server<T> {
         }
     }
 
+    void executeOnActor(Object actor, Runnable task) {
+        pool.submit(actor, task);
+    }
+
     private void handleAccept(ServerSocketChannel serverChan, Selector selector) throws IOException {
         SocketChannel clientChan = serverChan.accept();
         if (clientChan == null) return;
         clientChan.configureBlocking(false);
+        if (TransportLimits.SEND_BUFFER_BYTES > 0) clientChan.socket().setSendBufferSize(TransportLimits.SEND_BUFFER_BYTES);
         final NonBlockingConnectionHandler<T> handler = new NonBlockingConnectionHandler<>(
                 readerFactory.get(),
                 protocolFactory.get(),

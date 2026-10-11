@@ -78,6 +78,41 @@ def workload(port,clients,messages,size):
             'messages_per_second':len(latency)/elapsed,'p50_ms':statistics.median(latency),
             'p95_ms':percentile(latency,.95),'p99_ms':percentile(latency,.99),'errors':0}
 
+def process_usage(pid):
+    try:
+        stats = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+        cpu = (int(stats[11]) + int(stats[12])) / os.sysconf('SC_CLK_TCK')
+        status = Path(f"/proc/{pid}/status").read_text().splitlines()
+        rss = next(int(line.split()[1]) for line in status if line.startswith('VmRSS:'))
+        return cpu, rss
+    except (OSError, ValueError, StopIteration):
+        return None, None
+
+
+def measured_workload(process, port, clients, messages, size):
+    cpu_before, rss = process_usage(process.pid)
+    peaks = [rss] if rss is not None else []
+    stop = threading.Event()
+    def sample():
+        while not stop.wait(.02):
+            _, value = process_usage(process.pid)
+            if value is not None: peaks.append(value)
+    sampler = threading.Thread(target=sample, daemon=True)
+    sampler.start()
+    started = time.perf_counter()
+    try:
+        result = workload(port, clients, messages, size)
+    finally:
+        stop.set(); sampler.join(timeout=1)
+    interval = time.perf_counter() - started
+    cpu_after, _ = process_usage(process.pid)
+    result.update(sampled_peak_rss_kib=max(peaks) if peaks else None,
+                  process_cpu_seconds=(cpu_after-cpu_before) if cpu_after is not None and cpu_before is not None else None,
+                  resource_interval_seconds=interval,
+                  resource_scope="Java process only; includes connection setup and warmup; RSS sampled every 20ms; CPU seconds can exceed wall time across cores")
+    return result
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--clients',type=int,nargs='+',default=[1,8,32])
@@ -111,7 +146,7 @@ def main():
                                 while not occupied(args.port):
                                     if process.poll() is not None or time.monotonic()>deadline: raise RuntimeError('Java startup failed')
                                     time.sleep(.05)
-                                result=workload(args.port,count,args.messages,args.payload)
+                                result=measured_workload(process,args.port,count,args.messages,args.payload)
                                 result.update(mode=mode,repeat=repeat+1)
                                 rows.append(result)
                                 print(f'{mode:7} {count:3} clients: {result["messages_per_second"]:8.1f} msg/s; p95 {result["p95_ms"]:.3f} ms',flush=True)

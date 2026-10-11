@@ -137,6 +137,14 @@ def report_data(value):
         info = row.get("general_information")
         if not isinstance(info, dict) or any(type(info.get(k)) is not bool for k in ("active", "forces_arrival_at_scene")):
             raise ValueError("Report status fields must be true or false.")
+        priority = row.get("priority", "normal")
+        location = row.get("location", "")
+        if priority not in ("low", "normal", "urgent"):
+            raise ValueError("Choose low, normal or urgent priority.")
+        if not isinstance(location, str) or len(location) > 160 or any(ord(c)<32 for c in location):
+            raise ValueError("Location must be at most 160 characters without control characters.")
+        result["priority"] = priority
+        result["location"] = location
         result["date_time"] = stamp
         result["general_information"] = {k: info[k] for k in ("active", "forces_arrival_at_scene")}
         clean.append(result)
@@ -222,7 +230,8 @@ class Handler(BaseHTTPRequestHandler):
     def get(self):
         route = urllib.parse.urlsplit(self.path)
         assets = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
-                  "/style.css": ("style.css", "text/css")}
+                  "/style.css": ("style.css", "text/css"), "/demo": ("demo.html", "text/html"),
+                  "/demo.js": ("demo.js", "text/javascript")}
         if route.path in assets:
             name, kind = assets[route.path]
             self.respond(200, (ROOT / "dashboard" / name).read_text(), kind)
@@ -238,6 +247,10 @@ class Handler(BaseHTTPRequestHandler):
             snapshot = self.app.runtime(session).snapshot()
             snapshot["user"] = {"name": session["username"], "role": session["role"]}
             self.respond(200, snapshot)
+        elif route.path == "/overview":
+            self.respond(200, self.app.incidents.overview(session))
+        elif route.path == "/notifications":
+            self.respond(200, {"items": self.app.incidents.notifications(session)})
         elif route.path == "/incidents":
             query = {k: v[0] for k,v in urllib.parse.parse_qs(route.query).items()}
             self.respond(200, self.app.incidents.list(session, query))
@@ -337,6 +350,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/auth/logout":
             self.app.drop(session["digest"])
             self.respond(200, {"signed_out": True}, cookie="")
+            return
+        if self.path == "/notifications/read":
+            self.app.incidents.read_notifications(session, data.get("ids"))
+            self.respond(200, {"saved": True})
             return
         if self.path == "/incidents/update":
             with self.app.policy_lock:

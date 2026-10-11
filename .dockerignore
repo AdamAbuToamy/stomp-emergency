@@ -6,3 +6,12 @@ logs
 **/__pycache__
 client/bin
 server/target
+
+.env.*
+**/.env
+**/.env.*
+*.pem
+*.key
+*.sqlite
+*.sqlite3
+*.db

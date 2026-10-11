@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Emergency Reports</title>
+<title>Relay · Incident workspace</title>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <section id="loginPage" class="login">
-  <h1>Emergency Reports</h1>
+  <div class="brand-mark">R</div><p class="eyebrow">RELAY / OPERATIONS</p><h1>A clear view.<br>A faster response.</h1>
   <h2 id="authTitle">Sign in</h2>
-  <p class="muted">Sign in to view and share reports.</p>
+  <p class="muted">One workspace for campus incidents, maintenance and team coordination.</p>
   <form id="loginForm">
     <label>Username
       <input id="username" autocomplete="username" maxlength="32" pattern="[a-z][a-z0-9_\-]{2,31}" required>
@@ -29,12 +29,13 @@
     <button id="connect" class="primary">Sign in</button>
     <button id="authToggle" type="button" style="width:100%;margin-top:12px">Create an account</button>
   </form>
+  <a class="demo-link" href="/demo">Explore the interactive demo →</a>
 </section>
 
 <div id="appPage" hidden>
   <header>
-    <strong>Emergency Reports</strong>
-    <div class="account">
+<a class="brand" href="/"><span class="brand-mark">R</span><span>Relay<small>INCIDENT OPERATIONS</small></span></a>
+    <div class="account"><button id="notificationsButton" aria-expanded="false">Inbox <span id="notificationCount">0</span></button>
       <span id="accountName"></span>
       <button id="logout">Sign out</button>
     </div>
@@ -42,14 +43,16 @@
   <main>
     <p id="connectionNote" class="notice" role="status"></p>
     <nav aria-label="Main navigation">
-      <button data-view="reportsView" class="active">Reports</button>
-      <button data-view="registryView">Saved incidents</button>
+      <span class="nav-caption">WORKSPACE</span>
+      <button data-view="registryView" class="active">▦ &nbsp; Overview &amp; incidents</button>
+      <button data-view="reportsView">＋ &nbsp; New report &amp; channels</button>
+
       <button data-view="accountView">My account</button>
       <button data-view="summaryView">Summary</button>
       <button data-view="systemView" id="adminTab" hidden>Administration</button>
     </nav>
 
-    <section id="reportsView" class="view">
+    <section id="reportsView" class="view" hidden>
       <div class="layout">
         <aside class="panel">
           <h2>Your channels</h2>
@@ -81,6 +84,7 @@
                          placeholder="City or location" required>
                 </label>
               </div>
+              <div class="row"><label>Priority<select id="composePriority"><option value="normal">Normal</option><option value="urgent">Urgent</option><option value="low">Low</option></select></label><label>Exact location<input id="composeLocation" maxlength="160" placeholder="e.g. Building 3 · Floor 2"></label></div>
               <label>What happened?
                 <textarea id="composeDescription" maxlength="5000"
                           placeholder="Describe the situation..." required></textarea>
@@ -129,21 +133,30 @@
       </form>
     </section>
 
-    <section id="registryView" class="view panel" hidden style="margin-top:24px">
-      <h2>Saved incidents</h2>
-      <p class="muted">Reports submitted through this dashboard stay here after restart. Dates filter creation time in UTC.</p>
+    <section id="registryView" class="view">
+      <div class="page-heading"><div><p class="eyebrow">OPERATIONS / WORKSPACE</p><h1>Every incident. In focus.</h1><p class="muted">Coordinate work, track ownership and keep your team informed.</p></div><button id="quickReport" class="primary">＋ New report</button></div>
+      <div class="metrics" aria-label="Incident overview">
+        <div class="metric"><span>Open incidents</span><strong id="overviewOpen">—</strong><small>New and in progress</small></div>
+        <div class="metric urgent"><span>Needs attention</span><strong id="overviewUrgent">—</strong><small>Urgent · not closed</small></div>
+        <div class="metric"><span>Assigned to me</span><strong id="overviewMine">—</strong><small>Your open work</small></div>
+        <div class="metric aging"><span>Open over 24 hours</span><strong id="overviewAging">—</strong><small>Review pending work</small></div>
+      </div>
+      <div class="panel registry-panel"><div class="section-heading"><h2>Incident register</h2><span class="muted small">Persistent records · dates in UTC</span></div>
       <form id="incidentFilters">
         <div class="row">
           <label>Search<input id="incidentQuery" placeholder="Title, city or description" maxlength="120"></label>
           <label>Channel<input id="incidentChannel" placeholder="All accessible channels"></label>
+          <label>Priority<select id="incidentPriority"><option value="">All priorities</option><option value="urgent">Urgent</option><option value="normal">Normal</option><option value="low">Low</option></select></label>
           <label>Status<select id="incidentStatus"><option value="">All</option><option value="new">New</option><option value="in_progress">In progress</option><option value="closed">Closed</option></select></label>
         </div>
         <div class="row"><label>From<input id="incidentFrom" type="date"></label><label>To<input id="incidentTo" type="date"></label></div>
-        <button class="primary">Search / refresh</button>
+        <label class="check"><input id="incidentMine" type="checkbox"> Assigned to me</label>
+        <button class="primary">Apply filters</button>
       </form>
       <p id="incidentNotice" role="status" class="notice"></p>
-      <div id="incidentList"></div>
+      <div class="table-wrap"><table class="incident-table"><thead><tr><th scope="col">Incident</th><th scope="col">Priority</th><th scope="col">Status</th><th scope="col">Location</th><th scope="col">Owner</th><th scope="col">Created</th></tr></thead><tbody id="incidentList"></tbody></table></div>
       <button id="incidentMore" hidden>Load older incidents</button>
+      </div>
     </section>
 
     <section id="summaryView" class="view panel" hidden style="margin-top:24px">
@@ -225,6 +238,8 @@
   </main>
 </div>
 
+<dialog id="incidentDrawer" aria-labelledby="drawerTitle"><div class="drawer-toolbar"><span class="eyebrow">INCIDENT DETAILS</span><button id="closeDrawer" aria-label="Close incident details">✕</button></div><h2 id="drawerTitle"></h2><div id="drawerContent"></div></dialog>
+<dialog id="notificationDialog" aria-labelledby="inboxTitle"><div class="drawer-toolbar"><h2 id="inboxTitle">Your inbox</h2><button id="closeInbox" aria-label="Close inbox">✕</button></div><p class="muted small">Your latest 20 assignment notifications.</p><div id="notificationList"></div></dialog>
 <script src="/app.js" defer></script>
 </body>
 </html>
