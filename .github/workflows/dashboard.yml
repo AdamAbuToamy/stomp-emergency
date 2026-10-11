@@ -31,3 +31,7 @@ jobs:
         env:
           DASHBOARD_TEST_MODE: ${{ matrix.mode }}
         run: python3 -m unittest discover -s tests_dashboard -v
+      - name: Run real-socket resilience scenarios
+        env:
+          RESILIENCE_MODE: ${{ matrix.mode }}
+        run: python3 -m unittest discover -s tests_resilience -v

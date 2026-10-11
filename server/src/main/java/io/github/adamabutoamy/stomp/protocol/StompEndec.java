@@ -3,6 +3,7 @@ package io.github.adamabutoamy.stomp.protocol;
 import io.github.adamabutoamy.stomp.api.MessageEncoderDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import io.github.adamabutoamy.stomp.server.TransportLimits;
 
 public class StompEndec implements MessageEncoderDecoder<String> {
     private byte[] bytes = new byte[1 << 10];
@@ -26,6 +27,9 @@ public class StompEndec implements MessageEncoderDecoder<String> {
     }
 
     private void pushByte(byte nextByte) {
+        if (len >= TransportLimits.MAX_FRAME_BYTES) {
+            throw new IllegalArgumentException("STOMP frame exceeds configured limit");
+        }
         if (len >= bytes.length) {
             bytes = Arrays.copyOf(bytes, bytes.length * 2);
         }

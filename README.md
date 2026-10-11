@@ -344,3 +344,21 @@ priority/notification/access scenario passed separately on Reactor. Static HTML 
 checks and JavaScript syntax checks passed. Browser rendering was not verified in
 this environment; test desktop/mobile appearance before publicly sharing the app.
 The source-hygiene gate is limited and complements GitHub secret scanning.
+
+## Transport hardening and fault injection
+
+See docs/TRANSPORT_RELIABILITY.md for the reproduced failure, limits, design
+trade-offs and remaining risks. The upgrade bounds incoming frames and Reactor
+output queues, pauses Reactor input under backlog, adds a selector write budget,
+and closes TPC sockets whose writes exceed a deadline. Cleanup is scheduled on the
+recipient actor to avoid cross-protocol monitor acquisition.
+
+    mvn -f server/pom.xml compile
+    python3 scripts/test_resilience.py
+
+Local verification passed 37 original + 16 authenticated/storage + 3 fault tests
+in each of TPC and Reactor (112 executions). Benchmarks now sample Java RSS and CPU
+in addition to message latency. Resource metrics include connection setup/warmup;
+message-latency metrics exclude them. See the recorded methodology and raw results.
+Previously recorded results are retained separately and are not a controlled causal
+before/after comparison. This update changes Java source: rebuild before running.
