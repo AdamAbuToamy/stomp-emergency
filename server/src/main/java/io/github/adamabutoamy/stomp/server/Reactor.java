@@ -43,7 +43,7 @@ public class Reactor<T> implements Server<T> {
 
             this.selector = selector; //just to be able to close
 
-            serverSock.bind(new InetSocketAddress(port));
+            serverSock.bind(new InetSocketAddress(System.getenv().getOrDefault("STOMP_BIND", "0.0.0.0"), port));
             serverSock.configureBlocking(false);
             serverSock.register(selector, SelectionKey.OP_ACCEPT);
 			System.out.println("Server started");

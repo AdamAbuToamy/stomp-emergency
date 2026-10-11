@@ -194,58 +194,129 @@ This is an educational portfolio project. It is not an operational emergency
 system, and full STOMP 1.2 compliance is not claimed. The bundled `json.hpp`
 is the third-party nlohmann/json library; its license notice is retained.
 
-## Local web dashboard
+## Web dashboard with persistent accounts
 
-A local browser interface backed by a Python bridge, the actual C++ client,
-and the Java STOMP server.
-
-### Build and run
-
-Run these commands from the repository root:
+Build and run from the repository root:
 
     mvn -f server/pom.xml compile
     make -C client
-    python3 scripts/run_dashboard.py
-
-Open http://127.0.0.1:8080 in one browser tab.
-
-To run Reactor instead of TPC:
-
     python3 scripts/run_dashboard.py --mode reactor
 
-Press Ctrl+C in the launcher terminal to stop the application.
+Open http://127.0.0.1:8080 and choose Create account. Passwords must have
+8–128 characters. Old in-memory Java demo accounts are not migrated;
+register a new dashboard account. Account data persists in `data/`.
+Do not delete this directory. Back it up while the application is stopped.
+Passwords are salted and hashed with scrypt; plaintext passwords are not stored.
 
-### Features
+Each authenticated browser session controls its own real C++ client.
+Channels are public by default. Administrators can restrict a channel and grant named accounts access. These checks are enforced by the authenticated bridge; standalone legacy Java mode remains the educational protocol server. Multiple tabs can read the same session without
+consuming one another's events. A second login to the same account revokes
+the previous login. Cookies expire after 12 hours; inactive bridge sessions
+are removed after 30 minutes without requests. Logout returns to sign-in.
 
-- Separate sign-in screen and signed-in workspace.
-- Join and leave channels with server confirmations.
-- Create reports through a form or import JSON files.
-- Check confirmed subscriptions before submitting reports through the UI.
-- Display received reports.
-- Generate summaries in C++ and download them as text.
-- Restore the browser view after refresh while the bridge remains running.
-- View rotating server logs with level filtering.
-- Display local server connection, signed-in user and active-channel counts.
+Live subscriptions and C++ summaries are transient. Dashboard-submitted incidents are now persisted in SQLite. Refresh restores up to
+100 received reports while that client remains running; server restart
+preserves accounts and valid login cookies, but not the transient live feed. Saved incidents remain available.
+A session closes after 2,000 incoming reports to bound client memory.
+The current capacity is 24 concurrent client sessions and 1,000 accounts.
+Signed-in users can change their password under My account by confirming the current password. Forgotten-password recovery and email verification are not included. Restricted dashboard channels now support administrator-managed membership.
 
-### Files
+### Administration
 
-- dashboard/app.py: local HTTP service and C++ process bridge.
-- dashboard/index.html: browser interface.
-- scripts/run_dashboard.py: application launcher.
-- ServerLog.java: server event logging.
-- ServerMonitor.java: local monitoring endpoint.
+Register your account first, then run on the server:
 
-### Scope and limitations
+    python3 scripts/manage_users.py promote YOUR_USERNAME
 
-- One local dashboard session and one browser tab are supported.
-- Sign-in controls the STOMP session, not admin access to the local dashboard.
-- Ports: STOMP 7777, dashboard 8080, monitor 7778.
-- Dashboard and monitor bind to loopback; the STOMP listener is unchanged.
-- Monitoring describes the local Java server, even when the client connects elsewhere.
-- Counters are sampled independently and may differ briefly during activity.
-- Reports are not persisted across client restarts.
-- Browser restoration includes up to 100 received reports while the bridge runs.
-- Submission does not prove delivery to every subscriber.
-- Logs are stored under logs/ and excluded from Git.
-- This is an educational portfolio application, not a production emergency system.
+Refresh the browser to see server logs and monitoring. Ordinary accounts
+cannot access these endpoints. No first-user administrator shortcut exists.
 
+### Hosting with HTTPS
+
+Deployment files are supplied for a Linux host with Docker Compose and a
+domain whose DNS points to that host. This repository does not provision
+hosting, purchase a domain or create a public URL. The host must stay running
+and retain the accounts volume. Free hosting that sleeps or discards local
+storage cannot provide the requested always-on persistent service.
+
+From the repository root, replace the domain before running:
+
+    DOMAIN=stomp.example.com docker compose -f deploy/compose.yaml up -d --build
+
+Caddy serves HTTPS on ports 80/443. Only the proxy is published; STOMP and
+monitoring stay internal. Application and proxy restart automatically when
+Docker starts. Do not run `docker compose down -v`: it deletes account data.
+In Docker, promote an existing account with:
+
+    docker compose -f deploy/compose.yaml exec app python3 scripts/manage_users.py promote YOUR_USERNAME
+
+Set DOMAIN for Compose commands, or put it in `deploy/.env` and use
+`docker compose --env-file deploy/.env -f deploy/compose.yaml ...`.
+The source includes no credentials or existing user database.
+Docker images and public TLS deployment have not been executed in the
+implementation environment; validate those on the selected host before use.
+
+### Verification of this upgrade
+
+Ten integration tests passed with TPC and again with Reactor, covering
+registration, password hashing, durable accounts, session isolation, reports,
+logout, administrator protection and internal STOMP authentication.
+The original 37 Python tests passed in each server mode, along with three
+C++ parser checks. Python compilation and JavaScript syntax checks passed.
+A browser rendering check was not completed in this environment.
+
+Run the new integration tests after building (ports 7777, 7778 and 8080 must be free):
+
+    python3 -m unittest discover -s tests_dashboard -v
+    DASHBOARD_TEST_MODE=reactor python3 -m unittest discover -s tests_dashboard -v
+
+This remains an educational application, not an operational emergency system.
+
+## Incident workflow upgrade
+
+Registration now signs in automatically. Duplicate names are rejected without
+changing the existing account. Password minimum is 8 characters with a show/hide control.
+
+Saved incidents have durable numeric IDs, author, timestamps, status, assignee,
+optimistic version checks and append-only application audit records. Search by
+text/channel/status and creation dates (UTC); older results use pagination.
+Reports saved before this upgrade and reports sent directly by legacy CLI clients
+are not retroactively imported. Original event active/arrival fields are kept;
+workflow status is a separate administrative field.
+
+Users submit and read accessible incidents. Responders claim unassigned incidents
+and manage their own assignments. Administrators assign responders and manage
+roles/channel membership in Administration. New → In progress → Closed; closed
+incidents can be reopened. Conflicting edits return 409 and require refresh.
+Policy changes revoke affected active sessions so subscriptions cannot retain
+revoked access. Other clients sign in again after permission changes.
+
+Report batches are saved before transmission. A request ID prevents repeated
+HTTP requests from creating the same batch twice. Submitted means the C++ client
+accepted the send, not guaranteed subscriber delivery. Interrupted sends become
+unknown, including pending batches recovered on restart; no automatic resend.
+A new intentional submission with a new request ID creates a new incident.
+
+The installer backs up replaced source files and the default SQLite database/key,
+then preserves existing data. Custom STOMP_DATA_DIR installations must back up
+that directory separately. Database migration adds tables without removing accounts.
+Stop the application before installing. Keep backups private: they contain account data.
+
+Validation: 10 real HTTP/Java/C++ integration scenarios passed on TPC and Reactor,
+plus 4 storage tests covering crash recovery, simultaneous edits, idempotency
+and invalid transitions. JavaScript syntax passed. Browser rendering could not
+be verified because the browser download failed. Docker/public hosting remain untested.
+No deployment was performed. The Java/C++ transport source was not changed in this upgrade.
+
+### Reproduce the performance comparison
+
+Stop the application first, then run:
+
+    python3 scripts/benchmark_stomp.py --messages 100 --repeats 3
+
+See benchmarks/RESULTS.md and benchmarks/results.json for actual measurements,
+method and limitations. The benchmark measures Java STOMP echo traffic, not the
+HTTP bridge, database performance or a production capacity guarantee.
+
+### Password and role display fix
+
+My account now supports changing a password with current-password verification, confirmation, an 8–128 character limit, and revocation of all existing sessions. Roles are shown beside the signed-in username. The role editor loads the actual selected role and disables self-editing. Administrator protections remain enforced on the server.

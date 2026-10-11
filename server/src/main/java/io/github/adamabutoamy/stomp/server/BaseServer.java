@@ -28,7 +28,8 @@ public abstract class BaseServer<T> implements Server<T> {
     @Override
     public void serve() {
 
-        try (ServerSocket serverSock = new ServerSocket(port)) {
+        try (ServerSocket serverSock = new ServerSocket(port, 50, java.net.InetAddress.getByName(
+                System.getenv().getOrDefault("STOMP_BIND", "0.0.0.0")))) {
 			System.out.println("Server started");
 
             this.sock = serverSock; //just to be able to close

@@ -65,14 +65,21 @@ public class StompMessagingProtocol implements MessagingProtocol<String> {
             return createErrorFrame("User already logged in", null, connectionId);
         }
 
-        // Check password if user exists
-        if (userPasswords.containsKey(login)) {
-            if (!userPasswords.get(login).equals(passcode)) {
+        // Hosted dashboard uses signed internal credentials, never the user's password.
+        String bridgeSecret = System.getenv("STOMP_BRIDGE_SECRET");
+        if (bridgeSecret != null && !bridgeSecret.isEmpty()) {
+            if (!BridgeAuth.valid(bridgeSecret, login, passcode)) {
                 return createErrorFrame("Wrong password", null, connectionId);
             }
         } else {
-            // New user - store credentials
-            userPasswords.put(login, passcode);
+            // Legacy educational CLI mode, retained for existing tests.
+            if (userPasswords.containsKey(login)) {
+                if (!userPasswords.get(login).equals(passcode)) {
+                    return createErrorFrame("Wrong password", null, connectionId);
+                }
+            } else {
+                userPasswords.put(login, passcode);
+            }
         }
 
         // Connect user
