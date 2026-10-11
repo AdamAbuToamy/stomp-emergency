@@ -33,3 +33,8 @@ core.*
 
 *:Zone.Identifier
 /logs/
+
+/data/
+.env
+*.zip
+__pycache__/

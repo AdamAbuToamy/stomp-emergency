@@ -41,7 +41,7 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
                 if (nextMessage != null && !nextMessage.equals("")) {
                     T response = protocol.process(nextMessage,id);
                     if (response != null && !response.equals("")) {
-                        System.out.println(response.toString());
+                        // Responses are not printed: they may contain user report content.
                         out.write(encdec.encode(response));
                         out.flush();
                         String st = response.toString();

@@ -8,6 +8,7 @@
 #include <iomanip>
 #include "StompProtocol.h"
 #include "json.hpp"
+#include <chrono>
 
 static std::ostream uiEvents(std::cout.rdbuf());
 
@@ -30,6 +31,9 @@ StompClient::StompClient(StompProtocol& protocol, bool uiMode) :
 
 void StompClient::readFromSocket() {
     while (!shouldTerminate) {
+        if (!ServerConnected) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
         if (ServerConnected) {
             try {
                 StompFrame frame = protocol.receiveFrame();
@@ -280,6 +284,10 @@ void StompClient::handleReport(const std::vector<std::string>& tokens) {
     try {
         eventsData = parseEventsFile(filename);
     } catch (const std::exception& error) {
+        if (uiMode) {
+            uiEvents << nlohmann::json{{"type", "command_error"},
+                {"message", "Invalid report file"}}.dump() << std::endl;
+        }
         std::cerr << "Report error: " << error.what() << std::endl;
         return;
     }
@@ -298,8 +306,17 @@ void StompClient::handleReport(const std::vector<std::string>& tokens) {
 		}
 		msg += "description:\n" + event.get_description();
 
-		protocol.send(eventsData.channel_name, msg);
-	}
+        if (!protocol.send(eventsData.channel_name, msg)) {
+            if (uiMode) {
+                uiEvents << nlohmann::json{{"type", "command_error"},
+                    {"message", "Could not submit report"}}.dump() << std::endl;
+            }
+            return;
+        }
+    }
+    if (uiMode) {
+        uiEvents << nlohmann::json{{"type", "report_submitted"}}.dump() << std::endl;
+    }
 }
 
 std::string StompClient::epochToDateTime(int epochTime) {
